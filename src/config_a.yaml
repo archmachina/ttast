@@ -1,0 +1,9 @@
+vars:
+  test: 1
+
+pipeline:
+  - name: replace
+    type: replace
+    vars:
+      TEST: "1234"
+
