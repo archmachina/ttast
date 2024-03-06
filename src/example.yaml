@@ -1,0 +1,13 @@
+vars:
+  replace_value: 7890
+
+pipeline:
+  - type: stdin_yaml
+  - type: replace
+    replace:
+      - key: REPLACE_VALUE_HERE
+        value: $replace_value
+  - type: stdout
+    prefix: "---begin---"
+    suffix: "---end---"
+

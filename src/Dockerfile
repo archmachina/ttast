@@ -2,12 +2,18 @@ FROM python:3.12.2-bullseye
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-COPY requirements.txt /
-RUN python3 -m pip install -r /requirements.txt
+WORKDIR /work
+ENV HOME=/work
 
-COPY ./ttast /usr/lib/python3/dist-packages
+COPY requirements.txt /work
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r /work/requirements.txt
+
+COPY ttast /work/modules/ttast/
+ENV PYTHONPATH=/work/modules
 
 ARG BUILD_VERSION
 RUN echo "${BUILD_VERSION}" > /build_version.txt
 
+COPY entrypoint /entrypoint
 ENTRYPOINT [ "/entrypoint" ]

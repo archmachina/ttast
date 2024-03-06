@@ -5,9 +5,6 @@ env:
   GITHUB_OWNER: archmachina
   GITHUB_REPO: ttast
 
-  # Take the semver version from GITHUB_REF by default
-  SEMVER_SOURCE: $GITHUB_REF
-
   # Registry release parameters
   REGISTRY_USERNAME: archmachina
   REGISTRY_HOST: docker.io
@@ -161,8 +158,8 @@ actions:
       - semver_rolling_version
       # Call parse_semver explicitly here so that docker_build_version can include it in the BUILD_VERSION var
       - parse_semver
-      - docker_build
       - python_build
+      - docker_build
 
   # Steps for a pull request to the main branch
   pr_branch_main:
@@ -171,8 +168,8 @@ actions:
       - semver_rolling_version
       # Call parse_semver explicitly here so that docker_build_version can include it in the BUILD_VERSION var
       - parse_semver
-      - docker_build
       - python_build
+      - docker_build
 
   # Steps to perform when building on main branch
   push_branch_main:
@@ -184,18 +181,21 @@ actions:
       - semver_rolling_version
       # Call parse_semver explicitly here so that docker_build_version can include it in the BUILD_VERSION var
       - parse_semver
-      - docker_registry_push
       - python_build
+      - docker_registry_push
 
   # Steps to perform when building from a git tag v*
   push_tag_v:
+    env:
+      # Take the semver version from GITHUB_REF by default
+      SEMVER_SOURCE: $GITHUB_REF
     steps:
       # Call parse_semver explicitly here so that docker_build_version can include it in the BUILD_VERSION var
       - parse_semver
       # Expand tags will include additional version tags in the TAG_VERSIONS var based on the semver version
+      - pypi_release
       - docker_expand_tags
       - docker_registry_push
-      - pypi_release
       - name: github_release
         type: github_release
         owner: $GITHUB_OWNER
