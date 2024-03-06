@@ -21,6 +21,20 @@ pipeline:
       - key: "Y..."
         value: $other_replacement
         regex: true
+  - type: template
+    vars:
+      override: frog
+    match_any_tags:
+      - import
+    apply_tags:
+      - templated
+  - type: template
+    vars:
+      override: $other_replacement
+    exclude_tags:
+      - templated
+    apply_tags:
+      - templated
   - type: stdout
     prefix: "******** BEGIN ********"
     suffix: "********  END  ********"

@@ -9,6 +9,7 @@ import sys
 import glob
 import re
 import yaml
+import jinja2
 
 from string import Template
 
@@ -140,6 +141,8 @@ class PipelineStep:
             self._process_stdout()
         elif self.step_type == "replace":
             self._process_replace()
+        elif self.step_type == "template":
+            self._process_template()
         else:
             raise PipelineRunException(f"Invalid step type in step {self.step_type}")
 
@@ -307,6 +310,39 @@ class PipelineStep:
                     block.block = re.sub(replace_key, replace_value, block.block)
                 else:
                     block.block = block.block.replace(replace_key, replace_value)
+
+    def _process_template(self):
+        vars = extract_property(self.step_def, "vars", template_map=self.parent.vars)
+        validate(isinstance(vars, dict) or vars is None, "Step 'vars' must be a dictionary or absent")
+
+        merge_vars = extract_property(self.step_def, "merge_vars", template_map=self.parent.vars, default=True)
+        validate(isinstance(merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
+        merge_vars = parse_bool(merge_vars)
+
+        template_vars = {}
+
+        if merge_vars:
+            for key in self.parent.vars:
+                template_vars[key] = self.parent.vars[key]
+
+        if vars is not None:
+            for key in vars:
+                template_vars[key] = vars[key]
+
+        environment = jinja2.Environment()
+
+        for block in self.parent.text_blocks:
+
+            # Determine if we should be processing this document
+            if not self._is_tag_match(block):
+                continue
+
+            logger.debug(f"template: document tags: {block.tags}")
+            logger.debug(f"template: document filename: {block.filename}")
+
+            template = environment.from_string(block.block)
+            block.block = template.render(template_vars)
+
 
     def _process_config(self):
         # Read the content from the file and use _process_config_content to do the work

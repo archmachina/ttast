@@ -1,2 +1,7 @@
 ---
 name: Second YAML document
+
+
+config_value: {{ replace_value }}
+
+config2: {{ override }}
