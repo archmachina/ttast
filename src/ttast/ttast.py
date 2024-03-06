@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import sys
+import glob
 
 import yaml
 
@@ -79,11 +80,14 @@ def extract_property(spec, key, *, template_map=None, default=None, required=Fal
 
 class TextBlock:
     def __init__(self, block, *, tags=None):
+        validate(isinstance(tags, (list, set)) or tags is None, "Tags supplied to TextBlock must be a set, list or absent")
+
         self.block = block
 
-        if tags is None:
-            tags = []
-        self.tags = tags
+        self.tags = set()
+        if tags is not None:
+            for tag in tags:
+                self.tags.add(tag)
 
 class PipelineStep:
     def __init__(self, step_def, parent):
@@ -97,15 +101,35 @@ class PipelineStep:
         self.step_type = extract_property(self.step_def, "type", template_map=self.parent.vars)
         validate(isinstance(self.step_type, str) and self.step_type != "", "Step 'type' is required and must be a non empty string")
 
-        # Extract match tags
-        self.match_tags = extract_property(self.step_def, "match_tags", template_map=self.parent.vars, default=[])
-        validate(isinstance(self.match_tags, list), "Step 'match_tags' must be a list of strings")
-        validate(all(isinstance(x, str) for x in self.match_tags), "Step 'match_tags' must be a list of strings")
+        # Extract match any tags
+        match_any_tags = extract_property(self.step_def, "match_any_tags", template_map=self.parent.vars, default=[])
+        validate(isinstance(match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in match_any_tags), "Step 'match_any_tags' must be a list of strings")
+        self.match_any_tags = set(match_any_tags)
+
+        # Extract match all tags
+        match_all_tags = extract_property(self.step_def, "match_all_tags", template_map=self.parent.vars, default=[])
+        validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
+        self.match_all_tags = set(match_all_tags)
+
+        # Extract exclude tags
+        exclude_tags = extract_property(self.step_def, "exclude_tags", template_map=self.parent.vars, default=[])
+        validate(isinstance(exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in exclude_tags), "Step 'exclude_tags' must be a list of strings")
+        self.exclude_tags = set(exclude_tags)
+
+        # Apply tags
+        self.apply_tags = extract_property(self.step_def, "apply_tags", template_map=self.parent.vars, default=[])
+        validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
     def process(self):
 
-        if self.step_type == "include":
-            self._process_include()
+        if self.step_type == "config":
+            self._process_config()
+        elif self.step_type == "import":
+            self._process_import()
         elif self.step_type == "stdin":
             self._process_stdin()
         elif self.step_type == "stdin_yaml":
@@ -117,6 +141,28 @@ class PipelineStep:
         else:
             raise PipelineRunException(f"Invalid step type in step {self.step_type}")
 
+    def _is_tag_match(self, text_block):
+        validate(isinstance(text_block, TextBlock), "Invalid text_block passed to _is_tag_match")
+
+        if len(self.match_any_tags) > 0:
+            # If there are any 'match_any_tags', then at least one of them has to match with the document
+            if len(self.match_any_tags.intersection(text_block.tags)) == 0:
+                return False
+
+        if len(self.match_all_tags) > 0:
+            # If there are any 'match_all_tags', then all of those tags must match the document
+            for tag in self.match_all_tags:
+                if tag not in text_block.tags:
+                    return False
+
+        if len(self.exclude_tags) > 0:
+            # If there are any exclude tags and any are present in the block, it isn't a match
+            for tag in self.exclude_tags:
+                if tag in text_block.tags:
+                    return False
+
+        return True
+
     def _process_stdin(self):
         split = extract_property(self.step_def, "split", template_map=self.parent.vars)
         validate(isinstance(split, str) or split is None, "Step 'split' must be a string")
@@ -126,6 +172,7 @@ class PipelineStep:
         strip = parse_bool(strip)
 
         # Read content from stdin
+        logger.debug("stdin: reading document from stdin")
         stdin_content = sys.stdin.read()
 
         # Split if required and convert to a list of documents
@@ -140,7 +187,7 @@ class PipelineStep:
 
         # Add the stdin items to the list of text blocks
         for item in stdin_items:
-            self.parent.text_blocks.append(TextBlock(item, tags=[]))
+            self.parent.text_blocks.append(TextBlock(item, tags=self.apply_tags))
 
     def _process_stdin_yaml(self):
         strip = extract_property(self.step_def, "strip", template_map=self.parent.vars, default=False)
@@ -148,6 +195,7 @@ class PipelineStep:
         strip = parse_bool(strip)
 
         # Read content from stdin
+        logger.debug("stdin_yaml: reading yaml document from stdin")
         stdin_lines = sys.stdin.read().splitlines()
 
         documents = []
@@ -170,7 +218,29 @@ class PipelineStep:
 
         # Add all documents to the pipeline text block list
         for item in documents:
-            self.parent.text_blocks.append(TextBlock(item, tags=[]))
+            self.parent.text_blocks.append(TextBlock(item, tags=self.apply_tags))
+
+    def _process_import(self):
+        import_files = extract_property(self.step_def, "files", template_map=self.parent.vars)
+        validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
+        validate(all(isinstance(x, str) for x in import_files), "Step 'files' must be a list of strings")
+
+        recursive = extract_property(self.step_def, "recursive", template_map=self.parent.vars)
+        validate(isinstance(recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
+        recursive = parse_bool(recursive)
+
+        filenames = set()
+        for import_file in import_files:
+            logger.debug(f"import: processing file glob: {import_file}")
+            matches = glob.glob(import_file, recursive=recursive)
+            for match in matches:
+                filenames.add(match)
+
+        for filename in filenames:
+            logger.debug(f"import: reading file {filename}")
+            with open(filename, "r", encoding="utf-8") as file:
+                content = file.read()
+                self.parent.text_blocks.append(TextBlock(content, tags=self.apply_tags))
 
     def _process_stdout(self):
         prefix = extract_property(self.step_def, "prefix", template_map=self.parent.vars)
@@ -180,6 +250,12 @@ class PipelineStep:
         validate(isinstance(suffix, str) or suffix is None, "Step 'suffix' must be a string")
 
         for block in self.parent.text_blocks:
+
+            # Determine if we should be processing this document
+            if not self._is_tag_match(block):
+                continue
+
+            logger.debug(f"stdout: document tags: {block.tags}")
             if prefix is not None:
                 print(prefix)
 
@@ -197,6 +273,11 @@ class PipelineStep:
             validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
 
         for block in self.parent.text_blocks:
+
+            # Determine if we should be processing this document
+            if not self._is_tag_match(block):
+                continue
+
             for replace_item in replace:
                 replace_key = replace_item['key']
                 replace_value = replace_item['value']
@@ -207,27 +288,27 @@ class PipelineStep:
 
                 block.block = block.block.replace(replace_key, replace_value)
 
-    def _process_include(self):
-        # Read the content from the file and use _process_include_content to do the work
-        include_file = str(extract_property(self.step_def, "file", template_map=self.parent.vars))
-        validate(isinstance(include_file, str) or include_file is None, "Step 'include_file' must be a string or absent")
-        validate(not isinstance(include_file, str) or include_file != "", "Step 'include_file' cannot be empty")
+    def _process_config(self):
+        # Read the content from the file and use _process_config_content to do the work
+        config_file = str(extract_property(self.step_def, "file", template_map=self.parent.vars))
+        validate(isinstance(config_file, str) or config_file is None, "Step 'config_file' must be a string or absent")
+        validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
 
-        if include_file is not None:
-            with open(include_file, "r", encoding='utf-8') as file:
+        if config_file is not None:
+            with open(config_file, "r", encoding='utf-8') as file:
                 content = file.read()
 
-            self._process_include_content(content)
+            self._process_config_content(content)
 
         # Extract the content var, which can be either a dict or yaml string
-        include_content = extract_property(self.step_def, "content", template_map=self.parent.vars)
-        validate(isinstance(include_content, (str, dict)) or include_content is None, "Step 'include_content' must be a string, dict or absent")
+        config_content = extract_property(self.step_def, "content", template_map=self.parent.vars)
+        validate(isinstance(config_content, (str, dict)) or config_content is None, "Step 'config_content' must be a string, dict or absent")
 
-        # Call _process_include_content, which can determine whether to process as string or dict
-        if include_content is not None:
-            self._process_include_content(include_content)
+        # Call _process_config_content, which can determine whether to process as string or dict
+        if config_content is not None:
+            self._process_config_content(config_content)
 
-    def _process_include_content(self, content):
+    def _process_config_content(self, content):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
 
         # Parse yaml if it is a string
@@ -321,7 +402,7 @@ def process_args() -> int:
         if configs is not None:
             for config_item in configs:
                 step_def = {
-                    "type": "include",
+                    "type": "config",
                     "file": config_item
                 }
 
@@ -336,7 +417,6 @@ def process_args() -> int:
             logger.error(e)
         return 1
 
-    logger.info("Processing completed successfully")
     return 0
 
 

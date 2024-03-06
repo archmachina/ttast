@@ -1,0 +1,24 @@
+vars:
+  replace_value: 7890
+
+pipeline:
+  - type: stdin_yaml
+    apply_tags:
+      - yaml
+      - stdin
+  - type: import
+    files:
+      - "example/files/**/*.yaml"
+    recursive: true
+    apply_tags:
+      - yaml
+      - import
+  - type: replace
+    replace:
+      - key: REPLACE_VALUE_HERE
+        value: $replace_value
+  - type: stdout
+    prefix: "******** BEGIN ********"
+    suffix: "********  END  ********"
+    exclude_tags:
+      - stdin
