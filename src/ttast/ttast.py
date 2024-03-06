@@ -278,6 +278,8 @@ class PipelineStep:
             if not self._is_tag_match(block):
                 continue
 
+            logger.debug(f"replace: document tags: {block.tags}")
+
             for replace_item in replace:
                 replace_key = replace_item['key']
                 replace_value = replace_item['value']
@@ -286,6 +288,7 @@ class PipelineStep:
                 # needs to be manually done here
                 replace_value = template_if_string(replace_value, self.parent.vars)
 
+                logger.debug(f"replace: replacing: {replace_key} -> {replace_value}")
                 block.block = block.block.replace(replace_key, replace_value)
 
     def _process_config(self):
@@ -295,6 +298,7 @@ class PipelineStep:
         validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
 
         if config_file is not None:
+            logger.debug(f"config: including config from file {config_file}")
             with open(config_file, "r", encoding='utf-8') as file:
                 content = file.read()
 
@@ -306,6 +310,7 @@ class PipelineStep:
 
         # Call _process_config_content, which can determine whether to process as string or dict
         if config_content is not None:
+            logger.debug(f"config: including inline config")
             self._process_config_content(config_content)
 
     def _process_config_content(self, content):
@@ -353,6 +358,8 @@ class Pipeline:
         self.steps.append(step_def)
 
     def process(self):
+
+        # This is a while loop with index to allow the pipeline to be appended to during processing
         index = 0
         while index < len(self.steps):
             step = PipelineStep(self.steps[index], parent=self)
