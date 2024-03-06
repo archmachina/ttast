@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import glob
-
+import re
 import yaml
 
 from string import Template
@@ -79,7 +79,7 @@ def extract_property(spec, key, *, template_map=None, default=None, required=Fal
     return val
 
 class TextBlock:
-    def __init__(self, block, *, tags=None):
+    def __init__(self, block, *, tags=None, filename=""):
         validate(isinstance(tags, (list, set)) or tags is None, "Tags supplied to TextBlock must be a set, list or absent")
 
         self.block = block
@@ -88,6 +88,8 @@ class TextBlock:
         if tags is not None:
             for tag in tags:
                 self.tags.add(tag)
+
+        self.filename = filename
 
 class PipelineStep:
     def __init__(self, step_def, parent):
@@ -240,7 +242,7 @@ class PipelineStep:
             logger.debug(f"import: reading file {filename}")
             with open(filename, "r", encoding="utf-8") as file:
                 content = file.read()
-                self.parent.text_blocks.append(TextBlock(content, tags=self.apply_tags))
+                self.parent.text_blocks.append(TextBlock(content, tags=self.apply_tags, filename=filename))
 
     def _process_stdout(self):
         prefix = extract_property(self.step_def, "prefix", template_map=self.parent.vars)
@@ -256,6 +258,8 @@ class PipelineStep:
                 continue
 
             logger.debug(f"stdout: document tags: {block.tags}")
+            logger.debug(f"stdout: document filename: {block.filename}")
+
             if prefix is not None:
                 print(prefix)
 
@@ -272,6 +276,10 @@ class PipelineStep:
             validate('key' in item and isinstance(item['key'], str), "Step 'replace' items must contain a string 'key' property")
             validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
 
+        regex = extract_property(self.step_def, "regex", template_map=self.parent.vars, default=False)
+        validate(isinstance(regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
+        regex = parse_bool(regex)
+
         for block in self.parent.text_blocks:
 
             # Determine if we should be processing this document
@@ -279,17 +287,26 @@ class PipelineStep:
                 continue
 
             logger.debug(f"replace: document tags: {block.tags}")
+            logger.debug(f"replace: document filename: {block.filename}")
 
             for replace_item in replace:
                 replace_key = replace_item['key']
                 replace_value = replace_item['value']
+
+                replace_regex = extract_property(replace_item, "regex", template_map=self.parent.vars, default=False)
+                validate(isinstance(replace_regex, (bool, str)), "Replace item 'regex' must be a bool, bool like string or absent")
+                replace_regex = parse_bool(replace_regex)
 
                 # replace_value isn't templated by extract_property as it is a list of dictionaries, so it
                 # needs to be manually done here
                 replace_value = template_if_string(replace_value, self.parent.vars)
 
                 logger.debug(f"replace: replacing: {replace_key} -> {replace_value}")
-                block.block = block.block.replace(replace_key, replace_value)
+
+                if regex or replace_regex:
+                    block.block = re.sub(replace_key, replace_value, block.block)
+                else:
+                    block.block = block.block.replace(replace_key, replace_value)
 
     def _process_config(self):
         # Read the content from the file and use _process_config_content to do the work

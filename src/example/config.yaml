@@ -1,5 +1,6 @@
 vars:
   replace_value: 7890
+  other_replacement: "BOOT"
 
 pipeline:
   - type: stdin_yaml
@@ -17,8 +18,9 @@ pipeline:
     replace:
       - key: REPLACE_VALUE_HERE
         value: $replace_value
+      - key: "Y..."
+        value: $other_replacement
+        regex: true
   - type: stdout
     prefix: "******** BEGIN ********"
     suffix: "********  END  ********"
-    exclude_tags:
-      - stdin
