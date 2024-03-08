@@ -148,6 +148,12 @@ class PipelineStep:
             stdin = parse_bool(stdin)
             self.stdin = stdin
 
+        elif self.step_type == "meta":
+            vars = pop_property(step_def, "vars", template_map=self.parent.vars)
+            validate(isinstance(vars, dict), "Step 'vars' must be a dictionary of strings")
+            validate(all(isinstance(x, str) for x in vars), "Step 'vars' must be a dictionary of strings")
+            self.vars = vars
+
         elif self.step_type == "import":
             import_files = pop_property(step_def, "files", template_map=self.parent.vars)
             validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
@@ -218,6 +224,8 @@ class PipelineStep:
 
         if self.step_type == "config":
             self._process_config()
+        elif self.step_type == "meta":
+            self._process_meta()
         elif self.step_type == "import":
             self._process_import()
         elif self.step_type == "stdin":
@@ -270,6 +278,18 @@ class PipelineStep:
                     return False
 
         return True
+
+    def _process_meta(self):
+        for block in self.parent.text_blocks:
+            # Determine if we should be processing this document
+            if not self._is_tag_match(block):
+                continue
+
+            logger.debug(f"stdout: document tags: {block.tags}")
+            logger.debug(f"stdout: document meta: {block.meta}")
+
+            for key in self.vars:
+                block.meta[key] = self.vars[key]
 
     def _process_stdin(self):
         # Read content from stdin
