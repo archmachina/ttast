@@ -26,8 +26,10 @@ def validate(val, message):
 def template_if_string(val, mapping):
     if val is not None and isinstance(val, str):
         try:
-            template = Template(val)
-            return template.substitute(mapping)
+            environment = jinja2.Environment()
+
+            template = environment.from_string(val)
+            return template.render(mapping)
         except KeyError as e:
             raise PipelineRunException(f"Missing key in template substitution: {e}") from e
 

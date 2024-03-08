@@ -19,12 +19,12 @@ pipeline:
   - type: replace
     replace:
       - key: REPLACE_VALUE_HERE
-        value: $replace_value
+        value: "{{ replace_value / 2 }}"
       - key: "Y..."
-        value: $other_replacement
+        value: "{{ other_replacement }}"
         regex: true
       - key: "TTAST_TAGS"
-        value: $ttast_tags
+        value: "{{ ttast_tags }}"
   - type: template
     vars:
       override: frog
@@ -34,7 +34,7 @@ pipeline:
       - templated
   - type: template
     vars:
-      override: $other_replacement
+      override: "{{ other_replacement }}"
     exclude_tags:
       - templated
     apply_tags:
