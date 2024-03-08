@@ -81,7 +81,7 @@ def pop_property(spec, key, *, template_map=None, default=None, required=False):
 
 
 class TextBlock:
-    def __init__(self, block, *, tags=None, filename=""):
+    def __init__(self, block, *, tags=None):
         validate(isinstance(tags, (list, set)) or tags is None, "Tags supplied to TextBlock must be a set, list or absent")
 
         self.block = block
@@ -91,7 +91,7 @@ class TextBlock:
             for tag in tags:
                 self.tags.add(tag)
 
-        self.filename = filename
+        self.meta = {}
 
 
 class PipelineStep:
@@ -100,7 +100,7 @@ class PipelineStep:
         validate(isinstance(parent, Pipeline), "Invalid parent passed to PipelineStep")
 
         step_def = step_def.copy()
-        self.step_def = step_def
+        self.step_def_orig = step_def.copy()
         self.parent = parent
 
         # Extract type
@@ -227,6 +227,22 @@ class PipelineStep:
         else:
             raise PipelineRunException(f"Invalid step type in step {self.step_type}")
 
+    def _merge_meta_tags(self, vars, *, tags=None, meta=None):
+        validate(isinstance(vars, dict), "Vars provided to merge_meta_tags is not a dictionary")
+        validate(isinstance(tags, (set, list)) or tags is None, "Tags provided to merge_meta_tags is not a list, set or absent")
+        validate(isinstance(meta, dict) or tags is None, "Tags provided to merge_meta_tags is not a list or absent")
+
+        new_vars = vars.copy()
+
+        new_tags = ",".join(set(tags))
+        new_vars["ttast_tags"] = new_tags
+
+        # Create vars for all of the metadata
+        for meta_key in meta:
+            new_vars[f"ttast_meta_{meta_key}"] = meta[meta_key]
+
+        return new_vars
+
     def _is_tag_match(self, text_block):
         validate(isinstance(text_block, TextBlock), "Invalid text_block passed to _is_tag_match")
 
@@ -307,7 +323,9 @@ class PipelineStep:
             logger.debug(f"import: reading file {filename}")
             with open(filename, "r", encoding="utf-8") as file:
                 content = file.read()
-                self.parent.text_blocks.append(TextBlock(content, tags=self.apply_tags, filename=filename))
+                new_text_block = TextBlock(content, tags=self.apply_tags)
+                new_text_block.meta["filename"] = filename
+                self.parent.text_blocks.append(new_text_block)
 
     def _process_stdout(self):
         for block in self.parent.text_blocks:
@@ -316,7 +334,7 @@ class PipelineStep:
                 continue
 
             logger.debug(f"stdout: document tags: {block.tags}")
-            logger.debug(f"stdout: document filename: {block.filename}")
+            logger.debug(f"stdout: document meta: {block.meta}")
 
             if self.prefix is not None:
                 print(self.prefix)
@@ -334,7 +352,10 @@ class PipelineStep:
                 continue
 
             logger.debug(f"replace: document tags: {block.tags}")
-            logger.debug(f"replace: document filename: {block.filename}")
+            logger.debug(f"replace: document meta: {block.meta}")
+
+            # Create custom vars for this block, including meta and tags
+            block_vars = self._merge_meta_tags(self.parent.vars, tags=block.tags, meta=block.meta)
 
             for replace_item in self.replace:
                 replace_key = replace_item['key']
@@ -346,7 +367,7 @@ class PipelineStep:
 
                 # replace_value isn't templated by pop_property as it is a list of dictionaries, so it
                 # needs to be manually done here
-                replace_value = template_if_string(replace_value, self.parent.vars)
+                replace_value = template_if_string(replace_value, block_vars)
 
                 logger.debug(f"replace: replacing: {replace_key} -> {replace_value}")
 
@@ -375,10 +396,13 @@ class PipelineStep:
                 continue
 
             logger.debug(f"template: document tags: {block.tags}")
-            logger.debug(f"template: document filename: {block.filename}")
+            logger.debug(f"template: document meta: {block.meta}")
+
+            # Create custom vars for this block, including meta and tags
+            block_vars = self._merge_meta_tags(template_vars, tags=block.tags, meta=block.meta)
 
             template = environment.from_string(block.block)
-            block.block = template.render(template_vars)
+            block.block = template.render(block_vars)
 
 
     def _process_config(self):
@@ -446,6 +470,8 @@ class Pipeline:
         # This is a while loop with index to allow the pipeline to be appended to during processing
         index = 0
         while index < len(self.steps):
+            # Pipeline Step creation should be deferred until it's actually needed (here)
+            # as the ctor may rely on variables updated from prior steps
             step = PipelineStep(self.steps[index], parent=self)
 
             step.process()

@@ -21,6 +21,8 @@ pipeline:
       - key: "Y..."
         value: $other_replacement
         regex: true
+      - key: "TTAST_TAGS"
+        value: $ttast_tags
   - type: template
     vars:
       override: frog
