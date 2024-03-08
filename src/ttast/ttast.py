@@ -386,6 +386,9 @@ class PipelineStep:
             block_vars = self._merge_meta_tags(self.parent.vars, tags=block.tags, meta=block.meta)
 
             for replace_item in self.replace:
+                # Copy the dictionary as we'll change it when removing values
+                replace_item = replace_item.copy()
+
                 replace_key = replace_item['key']
                 replace_value = replace_item['value']
 
@@ -397,7 +400,7 @@ class PipelineStep:
                 # needs to be manually done here
                 replace_value = template_if_string(replace_value, block_vars)
 
-                logger.debug(f"replace: replacing: {replace_key} -> {replace_value}")
+                logger.debug(f"replace: replacing regex({self.regex or replace_regex}): {replace_key} -> {replace_value}")
 
                 if self.regex or replace_regex:
                     block.block = re.sub(replace_key, replace_value, block.block)
@@ -552,10 +555,17 @@ def process_args() -> int:
         # Add each config as a pipeline step, which will read and merge the config
         if configs is not None:
             for config_item in configs:
-                step_def = {
-                    "type": "config",
-                    "file": config_item
-                }
+                # If '-' is specified, read the configuration from stdin
+                if config_item == "-":
+                    step_def = {
+                        "type": "config",
+                        "stdin": True
+                    }
+                else:
+                    step_def = {
+                        "type": "config",
+                        "file": config_item
+                    }
 
                 pipeline.add_step(step_def)
 
