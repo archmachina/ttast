@@ -52,8 +52,8 @@ def parse_bool(obj) -> bool:
     raise PipelineRunException(f"Unparseable value ({obj}) passed to parse_bool")
 
 
-def extract_property(spec, key, *, template_map=None, default=None, required=False):
-    validate(isinstance(spec, dict), f"Invalid spec passed to extract_property. Must be dict")
+def pop_property(spec, key, *, template_map=None, default=None, required=False):
+    validate(isinstance(spec, dict), f"Invalid spec passed to pop_property. Must be dict")
     validate(isinstance(template_map, dict) or template_map is None, "Invalid type passed as template_map")
 
     if key not in spec:
@@ -65,7 +65,7 @@ def extract_property(spec, key, *, template_map=None, default=None, required=Fal
         return default
 
     # Retrieve value
-    val = spec[key]
+    val = spec.pop(key)
 
     # Template the value, depending on the type
     if val is not None and template_map is not None:
@@ -78,6 +78,7 @@ def extract_property(spec, key, *, template_map=None, default=None, required=Fal
                 val[val_key] = template_if_string(val[val_key], template_map)
 
     return val
+
 
 class TextBlock:
     def __init__(self, block, *, tags=None, filename=""):
@@ -92,40 +93,120 @@ class TextBlock:
 
         self.filename = filename
 
+
 class PipelineStep:
     def __init__(self, step_def, parent):
         validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStep")
         validate(isinstance(parent, Pipeline), "Invalid parent passed to PipelineStep")
 
+        step_def = step_def.copy()
         self.step_def = step_def
         self.parent = parent
 
         # Extract type
-        self.step_type = extract_property(self.step_def, "type", template_map=self.parent.vars)
+        self.step_type = pop_property(step_def, "type", template_map=self.parent.vars)
         validate(isinstance(self.step_type, str) and self.step_type != "", "Step 'type' is required and must be a non empty string")
 
         # Extract match any tags
-        match_any_tags = extract_property(self.step_def, "match_any_tags", template_map=self.parent.vars, default=[])
+        match_any_tags = pop_property(step_def, "match_any_tags", template_map=self.parent.vars, default=[])
         validate(isinstance(match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_any_tags), "Step 'match_any_tags' must be a list of strings")
         self.match_any_tags = set(match_any_tags)
 
         # Extract match all tags
-        match_all_tags = extract_property(self.step_def, "match_all_tags", template_map=self.parent.vars, default=[])
+        match_all_tags = pop_property(step_def, "match_all_tags", template_map=self.parent.vars, default=[])
         validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
         self.match_all_tags = set(match_all_tags)
 
         # Extract exclude tags
-        exclude_tags = extract_property(self.step_def, "exclude_tags", template_map=self.parent.vars, default=[])
+        exclude_tags = pop_property(step_def, "exclude_tags", template_map=self.parent.vars, default=[])
         validate(isinstance(exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in exclude_tags), "Step 'exclude_tags' must be a list of strings")
         self.exclude_tags = set(exclude_tags)
 
         # Apply tags
-        self.apply_tags = extract_property(self.step_def, "apply_tags", template_map=self.parent.vars, default=[])
+        self.apply_tags = pop_property(step_def, "apply_tags", template_map=self.parent.vars, default=[])
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
+
+        if self.step_type == "config":
+            # Read the content from the file and use _process_config_content to do the work
+            config_file = str(pop_property(step_def, "file", template_map=self.parent.vars))
+            validate(isinstance(config_file, str) or config_file is None, "Step 'config_file' must be a string or absent")
+            validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
+            self.config_file = config_file
+
+            # Extract the content var, which can be either a dict or yaml string
+            config_content = pop_property(step_def, "content", template_map=self.parent.vars)
+            validate(isinstance(config_content, (str, dict)) or config_content is None, "Step 'config_content' must be a string, dict or absent")
+            self.config_content = config_content
+
+        elif self.step_type == "import":
+            import_files = pop_property(step_def, "files", template_map=self.parent.vars)
+            validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
+            validate(all(isinstance(x, str) for x in import_files), "Step 'files' must be a list of strings")
+            self.import_files = import_files
+
+            recursive = pop_property(step_def, "recursive", template_map=self.parent.vars)
+            validate(isinstance(recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
+            recursive = parse_bool(recursive)
+            self.recursive = recursive
+
+        elif self.step_type == "stdin":
+            split = pop_property(step_def, "split", template_map=self.parent.vars)
+            validate(isinstance(split, str) or split is None, "Step 'split' must be a string")
+            self.split = split
+
+            strip = pop_property(step_def, "strip", template_map=self.parent.vars, default=False)
+            validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
+            strip = parse_bool(strip)
+            self.strip = strip
+
+        elif self.step_type == "stdin_yaml":
+            strip = pop_property(step_def, "strip", template_map=self.parent.vars, default=False)
+            validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
+            strip = parse_bool(strip)
+            self.strip = strip
+
+        elif self.step_type == "stdout":
+            prefix = pop_property(step_def, "prefix", template_map=self.parent.vars)
+            validate(isinstance(prefix, str) or prefix is None, "Step 'prefix' must be a string")
+            self.prefix = prefix
+
+            suffix = pop_property(step_def, "suffix", template_map=self.parent.vars)
+            validate(isinstance(suffix, str) or suffix is None, "Step 'suffix' must be a string")
+            self.suffix = suffix
+
+        elif self.step_type == "replace":
+            replace = pop_property(step_def, "replace", template_map=self.parent.vars, default={})
+            validate(isinstance(replace, list), "Step 'replace' must be a list")
+            validate(all(isinstance(x, dict) for x in replace), "Step 'replace' items must be dictionaries")
+            for item in replace:
+                validate('key' in item and isinstance(item['key'], str), "Step 'replace' items must contain a string 'key' property")
+                validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
+            self.replace = replace
+
+            regex = pop_property(step_def, "regex", template_map=self.parent.vars, default=False)
+            validate(isinstance(regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
+            regex = parse_bool(regex)
+            self.regex = regex
+
+        elif self.step_type == "template":
+            vars = pop_property(step_def, "vars", template_map=self.parent.vars)
+            validate(isinstance(vars, dict) or vars is None, "Step 'vars' must be a dictionary or absent")
+            self.vars = vars
+
+            merge_vars = pop_property(step_def, "merge_vars", template_map=self.parent.vars, default=True)
+            validate(isinstance(merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
+            merge_vars = parse_bool(merge_vars)
+            self.merge_vars = merge_vars
+
+        else:
+            raise PipelineRunException(f"Invalid step type in step {self.step_type}")
+
+        # Validate step has no other properties
+        validate(len(step_def.keys()) == 0, f"Found unknown properties in configuration: {list(step_def.keys())}")
 
     def process(self):
 
@@ -169,25 +250,18 @@ class PipelineStep:
         return True
 
     def _process_stdin(self):
-        split = extract_property(self.step_def, "split", template_map=self.parent.vars)
-        validate(isinstance(split, str) or split is None, "Step 'split' must be a string")
-
-        strip = extract_property(self.step_def, "strip", template_map=self.parent.vars, default=False)
-        validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
-        strip = parse_bool(strip)
-
         # Read content from stdin
         logger.debug("stdin: reading document from stdin")
         stdin_content = sys.stdin.read()
 
         # Split if required and convert to a list of documents
-        if split is not None and split != "":
-            stdin_items = stdin_content.split(split)
+        if self.split is not None and self.split != "":
+            stdin_items = stdin_content.split(self.split)
         else:
             stdin_items = [stdin_content]
 
         # strip leading and trailing whitespace, if required
-        if strip:
+        if self.strip:
             stdin_items = [x.strip() for x in stdin_items]
 
         # Add the stdin items to the list of text blocks
@@ -195,10 +269,6 @@ class PipelineStep:
             self.parent.text_blocks.append(TextBlock(item, tags=self.apply_tags))
 
     def _process_stdin_yaml(self):
-        strip = extract_property(self.step_def, "strip", template_map=self.parent.vars, default=False)
-        validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
-        strip = parse_bool(strip)
-
         # Read content from stdin
         logger.debug("stdin_yaml: reading yaml document from stdin")
         stdin_lines = sys.stdin.read().splitlines()
@@ -218,7 +288,7 @@ class PipelineStep:
         documents.append("\n".join(current))
 
         # Strip each document, if required
-        if strip:
+        if self.strip:
             documents = [x.strip() for x in documents]
 
         # Add all documents to the pipeline text block list
@@ -226,18 +296,10 @@ class PipelineStep:
             self.parent.text_blocks.append(TextBlock(item, tags=self.apply_tags))
 
     def _process_import(self):
-        import_files = extract_property(self.step_def, "files", template_map=self.parent.vars)
-        validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
-        validate(all(isinstance(x, str) for x in import_files), "Step 'files' must be a list of strings")
-
-        recursive = extract_property(self.step_def, "recursive", template_map=self.parent.vars)
-        validate(isinstance(recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
-        recursive = parse_bool(recursive)
-
         filenames = set()
-        for import_file in import_files:
+        for import_file in self.import_files:
             logger.debug(f"import: processing file glob: {import_file}")
-            matches = glob.glob(import_file, recursive=recursive)
+            matches = glob.glob(import_file, recursive=self.recursive)
             for match in matches:
                 filenames.add(match)
 
@@ -248,14 +310,7 @@ class PipelineStep:
                 self.parent.text_blocks.append(TextBlock(content, tags=self.apply_tags, filename=filename))
 
     def _process_stdout(self):
-        prefix = extract_property(self.step_def, "prefix", template_map=self.parent.vars)
-        validate(isinstance(prefix, str) or prefix is None, "Step 'prefix' must be a string")
-
-        suffix = extract_property(self.step_def, "suffix", template_map=self.parent.vars)
-        validate(isinstance(suffix, str) or suffix is None, "Step 'suffix' must be a string")
-
         for block in self.parent.text_blocks:
-
             # Determine if we should be processing this document
             if not self._is_tag_match(block):
                 continue
@@ -263,26 +318,15 @@ class PipelineStep:
             logger.debug(f"stdout: document tags: {block.tags}")
             logger.debug(f"stdout: document filename: {block.filename}")
 
-            if prefix is not None:
-                print(prefix)
+            if self.prefix is not None:
+                print(self.prefix)
 
             print(block.block)
 
-            if suffix is not None:
-                print(suffix)
+            if self.suffix is not None:
+                print(self.suffix)
 
     def _process_replace(self):
-        replace = extract_property(self.step_def, "replace", template_map=self.parent.vars, default={})
-        validate(isinstance(replace, list), "Step 'replace' must be a list")
-        validate(all(isinstance(x, dict) for x in replace), "Step 'replace' items must be dictionaries")
-        for item in replace:
-            validate('key' in item and isinstance(item['key'], str), "Step 'replace' items must contain a string 'key' property")
-            validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
-
-        regex = extract_property(self.step_def, "regex", template_map=self.parent.vars, default=False)
-        validate(isinstance(regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
-        regex = parse_bool(regex)
-
         for block in self.parent.text_blocks:
 
             # Determine if we should be processing this document
@@ -292,42 +336,35 @@ class PipelineStep:
             logger.debug(f"replace: document tags: {block.tags}")
             logger.debug(f"replace: document filename: {block.filename}")
 
-            for replace_item in replace:
+            for replace_item in self.replace:
                 replace_key = replace_item['key']
                 replace_value = replace_item['value']
 
-                replace_regex = extract_property(replace_item, "regex", template_map=self.parent.vars, default=False)
+                replace_regex = pop_property(replace_item, "regex", template_map=self.parent.vars, default=False)
                 validate(isinstance(replace_regex, (bool, str)), "Replace item 'regex' must be a bool, bool like string or absent")
                 replace_regex = parse_bool(replace_regex)
 
-                # replace_value isn't templated by extract_property as it is a list of dictionaries, so it
+                # replace_value isn't templated by pop_property as it is a list of dictionaries, so it
                 # needs to be manually done here
                 replace_value = template_if_string(replace_value, self.parent.vars)
 
                 logger.debug(f"replace: replacing: {replace_key} -> {replace_value}")
 
-                if regex or replace_regex:
+                if self.regex or replace_regex:
                     block.block = re.sub(replace_key, replace_value, block.block)
                 else:
                     block.block = block.block.replace(replace_key, replace_value)
 
     def _process_template(self):
-        vars = extract_property(self.step_def, "vars", template_map=self.parent.vars)
-        validate(isinstance(vars, dict) or vars is None, "Step 'vars' must be a dictionary or absent")
-
-        merge_vars = extract_property(self.step_def, "merge_vars", template_map=self.parent.vars, default=True)
-        validate(isinstance(merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
-        merge_vars = parse_bool(merge_vars)
-
         template_vars = {}
 
-        if merge_vars:
+        if self.merge_vars:
             for key in self.parent.vars:
                 template_vars[key] = self.parent.vars[key]
 
-        if vars is not None:
-            for key in vars:
-                template_vars[key] = vars[key]
+        if self.vars is not None:
+            for key in self.vars:
+                template_vars[key] = self.vars[key]
 
         environment = jinja2.Environment()
 
@@ -345,26 +382,17 @@ class PipelineStep:
 
 
     def _process_config(self):
-        # Read the content from the file and use _process_config_content to do the work
-        config_file = str(extract_property(self.step_def, "file", template_map=self.parent.vars))
-        validate(isinstance(config_file, str) or config_file is None, "Step 'config_file' must be a string or absent")
-        validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
-
-        if config_file is not None:
-            logger.debug(f"config: including config from file {config_file}")
-            with open(config_file, "r", encoding='utf-8') as file:
+        if self.config_file is not None:
+            logger.debug(f"config: including config from file {self.config_file}")
+            with open(self.config_file, "r", encoding='utf-8') as file:
                 content = file.read()
 
             self._process_config_content(content)
 
-        # Extract the content var, which can be either a dict or yaml string
-        config_content = extract_property(self.step_def, "content", template_map=self.parent.vars)
-        validate(isinstance(config_content, (str, dict)) or config_content is None, "Step 'config_content' must be a string, dict or absent")
-
         # Call _process_config_content, which can determine whether to process as string or dict
-        if config_content is not None:
+        if self.config_content is not None:
             logger.debug(f"config: including inline config")
-            self._process_config_content(config_content)
+            self._process_config_content(self.config_content)
 
     def _process_config_content(self, content):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
@@ -376,20 +404,23 @@ class PipelineStep:
         validate(isinstance(content, dict), "Parsed configuration is not a dictionary")
 
         # Extract vars from the config
-        config_vars = dict(extract_property(content, "vars", template_map=self.parent.vars, default={}))
+        config_vars = dict(pop_property(content, "vars", template_map=self.parent.vars, default={}))
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
             self.parent.set_var(config_var_name, config_vars[config_var_name])
 
         # Extract pipeline steps from the config
-        config_pipeline = extract_property(content, "pipeline", template_map=None, default=[])
+        config_pipeline = pop_property(content, "pipeline", template_map=None, default=[])
         validate(isinstance(config_pipeline, list), "Config 'pipeline' is not a list")
 
         for step in config_pipeline:
             validate(isinstance(step, dict), "Pipeline entry is not a dictionary")
 
             self.parent.add_step(step)
+
+        # Validate config has no other properties
+        validate(len(content.keys()) == 0, f"Found unknown properties in configuration: {content.keys()}")
 
 
 class Pipeline:
