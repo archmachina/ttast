@@ -3,10 +3,12 @@ vars:
   other_replacement: "BOOT"
 
 pipeline:
-  - type: stdin_yaml
-    apply_tags:
-      - yaml
-      - stdin
+  - type: config
+    stdin: true
+  # - type: stdin_yaml
+  #   apply_tags:
+  #     - yaml
+  #     - stdin
   - type: import
     files:
       - "example/files/**/*.yaml"

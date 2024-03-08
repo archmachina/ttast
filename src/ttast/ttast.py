@@ -132,7 +132,7 @@ class PipelineStep:
 
         if self.step_type == "config":
             # Read the content from the file and use _process_config_content to do the work
-            config_file = str(pop_property(step_def, "file", template_map=self.parent.vars))
+            config_file = pop_property(step_def, "file", template_map=self.parent.vars)
             validate(isinstance(config_file, str) or config_file is None, "Step 'config_file' must be a string or absent")
             validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
             self.config_file = config_file
@@ -141,6 +141,12 @@ class PipelineStep:
             config_content = pop_property(step_def, "content", template_map=self.parent.vars)
             validate(isinstance(config_content, (str, dict)) or config_content is None, "Step 'config_content' must be a string, dict or absent")
             self.config_content = config_content
+
+            # Extract stdin bool, indicating whether to read config from stdin
+            stdin = pop_property(step_def, "stdin", template_map=self.parent.vars, default=False)
+            validate(isinstance(stdin, (bool, str)), "Step 'stdin' must be a bool, bool like string or absent")
+            stdin = parse_bool(stdin)
+            self.stdin = stdin
 
         elif self.step_type == "import":
             import_files = pop_property(step_def, "files", template_map=self.parent.vars)
@@ -418,6 +424,12 @@ class PipelineStep:
             logger.debug(f"config: including inline config")
             self._process_config_content(self.config_content)
 
+        if self.stdin:
+            # Read configuration from stdin
+            logger.debug(f"config: including stdin config")
+            stdin_content = sys.stdin.read()
+            self._process_config_content(stdin_content)
+
     def _process_config_content(self, content):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
 
@@ -428,7 +440,7 @@ class PipelineStep:
         validate(isinstance(content, dict), "Parsed configuration is not a dictionary")
 
         # Extract vars from the config
-        config_vars = dict(pop_property(content, "vars", template_map=self.parent.vars, default={}))
+        config_vars = pop_property(content, "vars", template_map=self.parent.vars, default={})
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
