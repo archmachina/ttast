@@ -7,4 +7,6 @@ config_value: {{ replace_value }}
 config2: {{ override }}
 
 filename: {{ ttast_meta_filename }}
-tags: {{ ttast_tags }}
+tags: {{ tags }}
+
+original_filename: {{ meta.filename | default('Unknown') }}

@@ -2,3 +2,5 @@
 name: First YAML document
 
 tags: TTAST_TAGS
+
+original_filename: {{ meta.filename | default('Unknown') }}

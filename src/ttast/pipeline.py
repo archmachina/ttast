@@ -97,17 +97,18 @@ class PipelineStep:
     def process(self):
 
         pipeline_steps = list()
-        blocks = list()
-
         handler = steps.get_handler(self.step_type)
 
         if not handler.per_block():
-            pipeline_steps.append(handler(pipeline_step=self))
+            step_instance = PipelineStepInstance(pipeline_step=self)
+            pipeline_steps.append(handler(step_instance=step_instance))
 
         else:
             blocks = self._get_match_blocks()
             for block in blocks:
-              pipeline_steps.append(handler(block=block, pipeline_step=self))
+                step_instance = PipelineStepInstance(pipeline_step=self, block=block)
+
+                pipeline_steps.append(handler(step_instance=step_instance))
 
             # Apply tags to any relevant blocks
             for block in blocks:
@@ -150,3 +151,20 @@ class PipelineStep:
                     return False
 
         return True
+
+class PipelineStepInstance:
+    def __init__(self, pipeline_step, block=None):
+        validate(isinstance(pipeline_step, PipelineStep), "Invalid pipeline step passed to PipelineStepInstance")
+        validate(isinstance(block, TextBlock) or block is None, "Invalid block passed to PipelineStepInstance")
+
+        self.block = block
+        self.pipeline_step = pipeline_step
+        self.pipeline = pipeline_step.pipeline
+
+        self.vars = self.pipeline.vars.copy()
+
+        if block is not None:
+            self.vars["meta"] = block.meta
+            self.vars["tags"] = block.tags
+
+        self.vars["env"] = os.environ.copy()
