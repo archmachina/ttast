@@ -94,55 +94,28 @@ class PipelineStep:
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
-
     def process(self):
 
         pipeline_steps = list()
         blocks = list()
 
-        if self.step_type == "config":
-            pipeline_steps.append(steps.PipelineStepConfig(pipeline_step=self))
+        handler = steps.get_handler(self.step_type)
 
-        elif self.step_type == "import":
-            pipeline_steps.append(steps.PipelineStepImport(pipeline_step=self))
-
-        elif self.step_type == "stdin":
-            pipeline_steps.append(steps.PipelineStepStdin(pipeline_step=self))
-
-        elif self.step_type == "stdin_yaml":
-            pipeline_steps.append(steps.PipelineStepStdinYaml(pipeline_step=self))
-
-        elif self.step_type == "meta":
-            blocks = self._get_match_blocks()
-            for block in blocks:
-              pipeline_steps.append(steps.PipelineStepMeta(block=block, pipeline_step=self))
-
-        elif self.step_type == "stdout":
-            blocks = self._get_match_blocks()
-            for block in blocks:
-              pipeline_steps.append(steps.PipelineStepStdout(block=block, pipeline_step=self))
-
-        elif self.step_type == "replace":
-            blocks = self._get_match_blocks()
-            for block in blocks:
-              pipeline_steps.append(steps.PipelineStepReplace(block=block, pipeline_step=self))
-
-        elif self.step_type == "template":
-            blocks = self._get_match_blocks()
-            for block in blocks:
-              pipeline_steps.append(steps.PipelineStepTemplate(block=block, pipeline_step=self))
+        if not handler.per_block():
+            pipeline_steps.append(handler(pipeline_step=self))
 
         else:
-            raise PipelineRunException(f"Invalid step type in step {self.step_type}")
+            blocks = self._get_match_blocks()
+            for block in blocks:
+              pipeline_steps.append(handler(block=block, pipeline_step=self))
 
-        # Process each of the steps
-        for step in pipeline_steps:
-            step.process()
+            # Apply tags to any relevant blocks
+            for block in blocks:
+                for tag in self.apply_tags:
+                    block.tags.add(tag)
 
-        # Apply tags to any relevant blocks
-        for block in blocks:
-            for tag in self.apply_tags:
-                block.tags.add(tag)
+        for instance in pipeline_steps:
+            instance.process()
 
     def _get_match_blocks(self):
         matches = list()

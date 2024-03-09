@@ -7,6 +7,36 @@ import glob
 from .util import *
 from . import pipeline
 
+def get_handler(step_type):
+    validate(isinstance(step_type, str), "Invalid step_type passed to get_handler")
+
+    if step_type == "config":
+        return PipelineStepConfig
+
+    elif step_type == "import":
+        return PipelineStepImport
+
+    elif step_type == "stdin":
+        return PipelineStepStdin
+
+    elif step_type == "stdin_yaml":
+        return PipelineStepStdinYaml
+
+    elif step_type == "meta":
+        return PipelineStepMeta
+
+    elif step_type == "stdout":
+        return PipelineStepStdout
+
+    elif step_type == "replace":
+        return PipelineStepReplace
+
+    elif step_type == "template":
+        return PipelineStepTemplate
+
+    else:
+        raise PipelineRunException(f"Invalid step type in step {step_type}")
+
 class PipelineStepConfig:
     """
     """
@@ -35,6 +65,9 @@ class PipelineStepConfig:
         self.stdin = stdin
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
+
+    def per_block():
+        return False
 
     def process(self):
         if self.config_file is not None:
@@ -108,6 +141,9 @@ class PipelineStepImport:
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
 
+    def per_block():
+        return False
+
     def process(self):
         filenames = set()
         for import_file in self.import_files:
@@ -144,6 +180,9 @@ class PipelineStepMeta:
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
+    def per_block():
+        return True
+
     def process(self):
         logger.debug(f"meta: document tags: {self.block.tags}")
         logger.debug(f"meta: document meta: {self.block.meta}")
@@ -178,6 +217,9 @@ class PipelineStepReplace:
         self.regex = regex
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
+
+    def per_block():
+        return True
 
     def process(self):
         logger.debug(f"replace: document tags: {self.block.tags}")
@@ -225,6 +267,9 @@ class PipelineStepStdinYaml:
         self.strip = strip
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
+
+    def per_block():
+        return False
 
     def process(self):
         # Read content from stdin
@@ -275,6 +320,9 @@ class PipelineStepStdin:
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
+    def per_block():
+        return False
+
     def process(self):
         # Read content from stdin
         logger.debug("stdin: reading document from stdin")
@@ -317,6 +365,9 @@ class PipelineStepStdout:
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
+    def per_block():
+        return True
+
     def process(self):
         logger.debug(f"stdout: document tags: {self.block.tags}")
         logger.debug(f"stdout: document meta: {self.block.meta}")
@@ -352,6 +403,9 @@ class PipelineStepTemplate:
         self.merge_vars = merge_vars
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
+
+    def per_block():
+        return True
 
     def process(self):
         template_vars = {}
