@@ -10,11 +10,10 @@ from . import pipeline
 class PipelineStepConfig:
     """
     """
-    def __init__(self, step_def, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepConfig")
+    def __init__(self, pipeline_step):
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepConfig")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
 
@@ -89,11 +88,10 @@ class PipelineStepConfig:
 class PipelineStepImport:
     """
     """
-    def __init__(self, step_def, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepImport")
+    def __init__(self, pipeline_step):
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepImport")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
 
@@ -130,12 +128,11 @@ class PipelineStepImport:
 class PipelineStepMeta:
     """
     """
-    def __init__(self, step_def, block, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepMeta")
+    def __init__(self, block, pipeline_step):
         validate(isinstance(block, pipeline.TextBlock), "Invalid TextBlock passed to PipelineStepMeta")
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepMeta")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
         self.block = block
@@ -158,12 +155,11 @@ class PipelineStepMeta:
 class PipelineStepReplace:
     """
     """
-    def __init__(self, step_def, block, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepReplace")
+    def __init__(self, block, pipeline_step):
         validate(isinstance(block, pipeline.TextBlock), "Invalid TextBlock passed to PipelineStepReplace")
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepReplace")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
         self.block = block
@@ -216,11 +212,10 @@ class PipelineStepReplace:
 class PipelineStepStdinYaml:
     """
     """
-    def __init__(self, step_def, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepStdinYaml")
+    def __init__(self, pipeline_step):
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepStdinYaml")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
 
@@ -262,11 +257,10 @@ class PipelineStepStdinYaml:
 class PipelineStepStdin:
     """
     """
-    def __init__(self, step_def, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepStdin")
+    def __init__(self, pipeline_step):
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepStdin")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
 
@@ -304,12 +298,11 @@ class PipelineStepStdin:
 class PipelineStepStdout:
     """
     """
-    def __init__(self, step_def, block, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepStdout")
+    def __init__(self, block, pipeline_step):
         validate(isinstance(block, pipeline.TextBlock), "Invalid TextBlock passed to PipelineStepStdout")
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepStdout")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
         self.block = block
@@ -340,12 +333,11 @@ class PipelineStepStdout:
 class PipelineStepTemplate:
     """
     """
-    def __init__(self, step_def, block, pipeline_step):
-        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepTemplate")
+    def __init__(self, block, pipeline_step):
         validate(isinstance(block, pipeline.TextBlock), "Invalid TextBlock passed to PipelineStepTemplate")
         validate(isinstance(pipeline_step, pipeline.PipelineStep), "Invalid pipeline_step passed to PipelineStepTemplate")
 
-        step_def = step_def.copy()
+        step_def = pipeline_step.step_def.copy()
         self.pipeline_step = pipeline_step
         self.pipeline = pipeline_step.pipeline
         self.block = block

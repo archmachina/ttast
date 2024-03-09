@@ -101,36 +101,36 @@ class PipelineStep:
         blocks = list()
 
         if self.step_type == "config":
-            pipeline_steps.append(steps.PipelineStepConfig(self.step_def.copy(), pipeline_step=self))
+            pipeline_steps.append(steps.PipelineStepConfig(pipeline_step=self))
 
         elif self.step_type == "import":
-            pipeline_steps.append(steps.PipelineStepImport(self.step_def.copy(), pipeline_step=self))
+            pipeline_steps.append(steps.PipelineStepImport(pipeline_step=self))
 
         elif self.step_type == "stdin":
-            pipeline_steps.append(steps.PipelineStepStdin(self.step_def.copy(), pipeline_step=self))
+            pipeline_steps.append(steps.PipelineStepStdin(pipeline_step=self))
 
         elif self.step_type == "stdin_yaml":
-            pipeline_steps.append(steps.PipelineStepStdinYaml(self.step_def.copy(), pipeline_step=self))
+            pipeline_steps.append(steps.PipelineStepStdinYaml(pipeline_step=self))
 
         elif self.step_type == "meta":
             blocks = self._get_match_blocks()
             for block in blocks:
-              pipeline_steps.append(steps.PipelineStepMeta(self.step_def.copy(), block=block, pipeline_step=self))
+              pipeline_steps.append(steps.PipelineStepMeta(block=block, pipeline_step=self))
 
         elif self.step_type == "stdout":
             blocks = self._get_match_blocks()
             for block in blocks:
-              pipeline_steps.append(steps.PipelineStepStdout(self.step_def.copy(), block=block, pipeline_step=self))
+              pipeline_steps.append(steps.PipelineStepStdout(block=block, pipeline_step=self))
 
         elif self.step_type == "replace":
             blocks = self._get_match_blocks()
             for block in blocks:
-              pipeline_steps.append(steps.PipelineStepReplace(self.step_def.copy(), block=block, pipeline_step=self))
+              pipeline_steps.append(steps.PipelineStepReplace(block=block, pipeline_step=self))
 
         elif self.step_type == "template":
             blocks = self._get_match_blocks()
             for block in blocks:
-              pipeline_steps.append(steps.PipelineStepTemplate(self.step_def.copy(), block=block, pipeline_step=self))
+              pipeline_steps.append(steps.PipelineStepTemplate(block=block, pipeline_step=self))
 
         else:
             raise PipelineRunException(f"Invalid step type in step {self.step_type}")
