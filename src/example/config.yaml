@@ -5,10 +5,10 @@ vars:
 pipeline:
   # - type: config
   #   stdin: true
-  # - type: stdin_yaml
-  #   apply_tags:
-  #     - yaml
-  #     - stdin
+  - type: stdin_yaml
+    apply_tags:
+      - yaml
+      - stdin
   - type: import
     files:
       - "example/files/**/*.yaml"
