@@ -8,7 +8,7 @@ import sys
 
 from .exception import *
 from .util import *
-from .pipeline import Pipeline
+from . import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,8 @@ def process_args() -> int:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
     try:
-        # Create the pipeline state
-        pipeline = Pipeline()
-
         # Add each config as a pipeline step, which will read and merge the config
+        steps = list()
         if configs is not None:
             for config_item in configs:
                 # If '-' is specified, read the configuration from stdin
@@ -63,10 +61,10 @@ def process_args() -> int:
                         "file": config_item
                     }
 
-                pipeline.add_step(step_def)
+                steps.append(step_def)
 
-        # Start processing the pipeline
-        pipeline.process()
+        pipeline.process_pipeline(steps)
+
     except Exception as e:  # pylint: disable=broad-exception-caught
         if debug:
             logger.error(e, exc_info=True, stack_info=True)

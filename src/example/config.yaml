@@ -1,14 +1,19 @@
 vars:
   replace_value: 7890
   other_replacement: "BOOT"
+  env_var: "{{ env.TEST_VAR | default('TEST_VAR unset') }}"
+  import_tag: "tester12"
 
 pipeline:
   # - type: config
   #   stdin: true
+
   - type: stdin_yaml
     apply_tags:
       - yaml
       - stdin
+      - "{{ import_tag }}"
+
   - type: import
     files:
       - "example/files/**/*.yaml"
@@ -16,6 +21,8 @@ pipeline:
     apply_tags:
       - yaml
       - import
+      - "{{ import_tag }}"
+
   - type: replace
     replace:
       - key: REPLACE_VALUE_HERE
@@ -25,6 +32,7 @@ pipeline:
         regex: true
       - key: "TTAST_TAGS"
         value: "{{ ttast_tags }}"
+
   - type: template
     vars:
       override: frog
@@ -32,6 +40,7 @@ pipeline:
       - import
     apply_tags:
       - templated
+
   - type: template
     vars:
       override: "{{ other_replacement }}"
@@ -39,11 +48,13 @@ pipeline:
       - templated
     apply_tags:
       - templated
+
   - type: meta
     match_any_tags:
       - yaml
     vars:
       document_type: yaml
+
   - type: stdout
     prefix: "******** BEGIN ********"
     suffix: "********  END  ********"

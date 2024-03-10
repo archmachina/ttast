@@ -7,7 +7,7 @@ import glob
 from .util import *
 from . import pipeline
 
-def get_handler(step_type):
+def get_handler_class(step_type):
     validate(isinstance(step_type, str), "Invalid step_type passed to get_handler")
 
     if step_type == "config":
@@ -44,10 +44,9 @@ class PipelineStepConfig:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepConfig")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         # Read the content from the file and use _process_config_content to do the work
         config_file = pop_property(step_def, "file", template_map=self.step_instance.vars)
@@ -90,7 +89,6 @@ class PipelineStepConfig:
             stdin_content = sys.stdin.read()
             self._process_config_content(stdin_content)
 
-
     def _process_config_content(self, content):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
 
@@ -105,7 +103,7 @@ class PipelineStepConfig:
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
-            self.pipeline.set_var(config_var_name, config_vars[config_var_name])
+            self.pipeline.vars[config_var_name] = config_vars[config_var_name]
 
         # Extract pipeline steps from the config
         config_pipeline = pop_property(content, "pipeline", template_map=None, default=[])
@@ -127,10 +125,9 @@ class PipelineStepImport:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepImport")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         import_files = pop_property(step_def, "files", template_map=self.step_instance.vars)
         validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
@@ -143,7 +140,6 @@ class PipelineStepImport:
         self.recursive = recursive
 
         validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
-
 
     def per_block():
         return False
@@ -164,9 +160,9 @@ class PipelineStepImport:
             logger.debug(f"import: reading file {filename}")
             with open(filename, "r", encoding="utf-8") as file:
                 content = file.read()
-                new_text_block = pipeline.TextBlock(content, tags=self.pipeline_step.apply_tags)
-                new_text_block.meta["filename"] = filename
-                self.pipeline.text_blocks.append(new_text_block)
+                new_block = pipeline.TextBlock(content, tags=self.step_instance.apply_tags)
+                new_block.meta["filename"] = filename
+                self.pipeline.blocks.append(new_block)
 
 
 class PipelineStepMeta:
@@ -176,10 +172,9 @@ class PipelineStepMeta:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepMeta")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         vars = pop_property(step_def, "vars", template_map=self.step_instance.vars)
         validate(isinstance(vars, dict), "Step 'vars' must be a dictionary of strings")
@@ -206,10 +201,9 @@ class PipelineStepReplace:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepReplace")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         replace = pop_property(step_def, "replace", template_map=self.step_instance.vars, default={})
         validate(isinstance(replace, list), "Step 'replace' must be a list")
@@ -263,10 +257,9 @@ class PipelineStepStdinYaml:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepStdinYaml")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         strip = pop_property(step_def, "strip", template_map=self.step_instance.vars, default=False)
         validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
@@ -303,7 +296,7 @@ class PipelineStepStdinYaml:
 
         # Add all documents to the pipeline text block list
         for item in documents:
-            self.pipeline.text_blocks.append(pipeline.TextBlock(item, tags=self.pipeline_step.apply_tags))
+            self.pipeline.blocks.append(pipeline.TextBlock(item, tags=self.step_instance.apply_tags))
 
 
 class PipelineStepStdin:
@@ -313,10 +306,9 @@ class PipelineStepStdin:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepStdin")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         split = pop_property(step_def, "split", template_map=self.step_instance.vars)
         validate(isinstance(split, str) or split is None, "Step 'split' must be a string")
@@ -349,7 +341,7 @@ class PipelineStepStdin:
 
         # Add the stdin items to the list of text blocks
         for item in stdin_items:
-            self.pipeline.text_blocks.append(pipeline.TextBlock(item, tags=self.pipeline_step.apply_tags))
+            self.pipeline.blocks.append(pipeline.TextBlock(item, tags=self.step_instance.apply_tags))
 
 
 class PipelineStepStdout:
@@ -359,10 +351,9 @@ class PipelineStepStdout:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepStdout")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         prefix = pop_property(step_def, "prefix", template_map=self.step_instance.vars)
         validate(isinstance(prefix, str) or prefix is None, "Step 'prefix' must be a string")
@@ -397,10 +388,9 @@ class PipelineStepTemplate:
         validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepTemplate")
 
         self.step_instance = step_instance
-        self.pipeline_step = step_instance.pipeline_step
-        self.pipeline = self.pipeline_step.pipeline
+        self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.pipeline_step.step_def.copy()
+        step_def = step_instance.step_def.copy()
 
         vars = pop_property(step_def, "vars", template_map=self.step_instance.vars)
         validate(isinstance(vars, dict) or vars is None, "Step 'vars' must be a dictionary or absent")
