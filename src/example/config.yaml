@@ -8,9 +8,8 @@ pipeline:
   # - type: config
   #   stdin: true
 
-  - type: stdin_yaml
+  - type: stdin
     apply_tags:
-      - yaml
       - stdin
       - "{{ import_tag }}"
 
@@ -22,6 +21,8 @@ pipeline:
       - yaml
       - import
       - "{{ import_tag }}"
+
+  - type: split_yaml
 
   - type: replace
     replace:

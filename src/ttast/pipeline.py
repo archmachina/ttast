@@ -33,7 +33,10 @@ def process_pipeline(pipeline_steps):
         # Create an instance per block for the step type, or a single instance for step types
         # that are not per block.
         if handler.per_block():
-            for block in pipeline.blocks:
+            # Create a copy of blocks to allow steps to alter the block list while we iterate
+            block_list_copy = pipeline.blocks.copy()
+
+            for block in block_list_copy:
                 instance = PipelineStepInstance(step_def, pipeline=pipeline, handler=handler, block=block)
                 instance.process()
         else:

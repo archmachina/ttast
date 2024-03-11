@@ -19,8 +19,8 @@ def get_handler_class(step_type):
     elif step_type == "stdin":
         return PipelineStepStdin
 
-    elif step_type == "stdin_yaml":
-        return PipelineStepStdinYaml
+    elif step_type == "split_yaml":
+        return PipelineStepSplitYaml
 
     elif step_type == "meta":
         return PipelineStepMeta
@@ -242,11 +242,11 @@ class PipelineStepReplace:
                 self.block.block = self.block.block.replace(replace_key, replace_value)
 
 
-class PipelineStepStdinYaml:
+class PipelineStepSplitYaml:
     """
     """
     def __init__(self, step_instance):
-        validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepStdinYaml")
+        validate(isinstance(step_instance, pipeline.PipelineStepInstance), "Invalid step_instance passed to PipelineStepSplitYaml")
 
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
@@ -258,18 +258,20 @@ class PipelineStepStdinYaml:
         self.strip = strip
 
     def per_block():
-        return False
+        return True
 
     def process(self):
         # Read content from stdin
-        logger.debug("stdin_yaml: reading yaml document from stdin")
-        stdin_lines = sys.stdin.read().splitlines()
+        logger.debug(f"split_yaml: document tags: {self.block.tags}")
+        logger.debug(f"split_yaml: document meta: {self.block.meta}")
 
+        lines = self.block.block.splitlines()
         documents = []
         current = []
 
-        for line in stdin_lines:
+        for line in lines:
 
+            logger.debug(f"split_yaml: line -> {line}")
             # Determine if we have the beginning of a yaml document
             if line == "---" and len(current) > 0:
                 documents.append("\n".join(current))
@@ -285,8 +287,16 @@ class PipelineStepStdinYaml:
 
         # Add all documents to the pipeline text block list
         for item in documents:
-            self.pipeline.blocks.append(pipeline.TextBlock(item, tags=self.step_instance.apply_tags))
+            new_block = pipeline.TextBlock(item)
+            new_block.meta = self.block.meta.copy()
+            new_block.tags = self.block.tags.copy()
 
+            self.pipeline.blocks.append(new_block)
+
+        # Remove the original source block from the list
+        self.pipeline.blocks.remove(self.block)
+
+        logger.debug(f"split_yaml: output {len(documents)} documents")
 
 class PipelineStepStdin:
     """
