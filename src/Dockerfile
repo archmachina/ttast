@@ -1,4 +1,4 @@
-FROM python:3.12.2-bullseye
+FROM python:3.12.2-slim-bullseye
 
 ARG DEBIAN_FRONTEND=noninteractive
 
