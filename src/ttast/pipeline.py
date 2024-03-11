@@ -114,12 +114,24 @@ class PipelineStepInstance:
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
+        # When condition
+        self.when = pop_property(self.step_def, "when", template_map=self.pipeline.vars, default=[])
+        validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
+        if isinstance(self.when, str):
+            self.when = [self.when]
+        validate(all(isinstance(x, str) for x in self.when), "Step 'when' must be a string or list of strings")
+
     def process(self):
 
         if not self._should_process():
             return
 
         handler_instance = self.handler(self)
+
+        # The ctor should extract all of the relevant properties from the step_def, leaving any unknown properties.
+        # Check that there are no properties left in the step definition
+        validate(len(self.step_def.keys()) == 0, f"Unknown properties on step definition: {list(self.step_def.keys())}")
+
         handler_instance.process()
 
         if self.block is not None:
@@ -142,6 +154,13 @@ class PipelineStepInstance:
             # If there are any exclude tags and any are present in the block, it isn't a match
             for tag in self.exclude_tags:
                 if tag in self.block.tags:
+                    return False
+
+        if len(self.when) > 0:
+            environment = jinja2.Environment()
+            for condition in self.when:
+                template = environment.from_string("{{" + condition + "}}")
+                if not parse_bool(template.render(self.vars)):
                     return False
 
         return True

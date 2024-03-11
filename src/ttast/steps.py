@@ -46,26 +46,23 @@ class PipelineStepConfig:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
         # Read the content from the file and use _process_config_content to do the work
-        config_file = pop_property(step_def, "file", template_map=self.step_instance.vars)
+        config_file = pop_property(step_instance.step_def, "file", template_map=self.step_instance.vars)
         validate(isinstance(config_file, str) or config_file is None, "Step 'config_file' must be a string or absent")
         validate(not isinstance(config_file, str) or config_file != "", "Step 'config_file' cannot be empty")
         self.config_file = config_file
 
         # Extract the content var, which can be either a dict or yaml string
-        config_content = pop_property(step_def, "content", template_map=self.step_instance.vars)
+        config_content = pop_property(step_instance.step_def, "content", template_map=self.step_instance.vars)
         validate(isinstance(config_content, (str, dict)) or config_content is None, "Step 'config_content' must be a string, dict or absent")
         self.config_content = config_content
 
         # Extract stdin bool, indicating whether to read config from stdin
-        stdin = pop_property(step_def, "stdin", template_map=self.step_instance.vars, default=False)
+        stdin = pop_property(step_instance.step_def, "stdin", template_map=self.step_instance.vars, default=False)
         validate(isinstance(stdin, (bool, str)), "Step 'stdin' must be a bool, bool like string or absent")
         stdin = parse_bool(stdin)
         self.stdin = stdin
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return False
@@ -127,19 +124,16 @@ class PipelineStepImport:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        import_files = pop_property(step_def, "files", template_map=self.step_instance.vars)
+        import_files = pop_property(step_instance.step_def, "files", template_map=self.step_instance.vars)
         validate(isinstance(import_files, list), "Step 'files' must be a list of strings")
         validate(all(isinstance(x, str) for x in import_files), "Step 'files' must be a list of strings")
         self.import_files = import_files
 
-        recursive = pop_property(step_def, "recursive", template_map=self.step_instance.vars)
+        recursive = pop_property(step_instance.step_def, "recursive", template_map=self.step_instance.vars)
         validate(isinstance(recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
         recursive = parse_bool(recursive)
         self.recursive = recursive
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return False
@@ -174,14 +168,11 @@ class PipelineStepMeta:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        vars = pop_property(step_def, "vars", template_map=self.step_instance.vars)
+        vars = pop_property(step_instance.step_def, "vars", template_map=self.step_instance.vars)
         validate(isinstance(vars, dict), "Step 'vars' must be a dictionary of strings")
         validate(all(isinstance(x, str) for x in vars), "Step 'vars' must be a dictionary of strings")
         self.vars = vars
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return True
@@ -203,9 +194,8 @@ class PipelineStepReplace:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        replace = pop_property(step_def, "replace", template_map=self.step_instance.vars, default={})
+        replace = pop_property(step_instance.step_def, "replace", template_map=self.step_instance.vars, default={})
         validate(isinstance(replace, list), "Step 'replace' must be a list")
         validate(all(isinstance(x, dict) for x in replace), "Step 'replace' items must be dictionaries")
         for item in replace:
@@ -213,12 +203,10 @@ class PipelineStepReplace:
             validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
         self.replace = replace
 
-        regex = pop_property(step_def, "regex", template_map=self.step_instance.vars, default=False)
+        regex = pop_property(step_instance.step_def, "regex", template_map=self.step_instance.vars, default=False)
         validate(isinstance(regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
         regex = parse_bool(regex)
         self.regex = regex
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return True
@@ -259,14 +247,11 @@ class PipelineStepStdinYaml:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        strip = pop_property(step_def, "strip", template_map=self.step_instance.vars, default=False)
+        strip = pop_property(step_instance.step_def, "strip", template_map=self.step_instance.vars, default=False)
         validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
         strip = parse_bool(strip)
         self.strip = strip
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return False
@@ -308,18 +293,15 @@ class PipelineStepStdin:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        split = pop_property(step_def, "split", template_map=self.step_instance.vars)
+        split = pop_property(step_instance.step_def, "split", template_map=self.step_instance.vars)
         validate(isinstance(split, str) or split is None, "Step 'split' must be a string")
         self.split = split
 
-        strip = pop_property(step_def, "strip", template_map=self.step_instance.vars, default=False)
+        strip = pop_property(step_instance.step_def, "strip", template_map=self.step_instance.vars, default=False)
         validate(isinstance(strip, (bool, str)), "Step 'strip' must be a bool or str value")
         strip = parse_bool(strip)
         self.strip = strip
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return False
@@ -353,17 +335,14 @@ class PipelineStepStdout:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        prefix = pop_property(step_def, "prefix", template_map=self.step_instance.vars)
+        prefix = pop_property(step_instance.step_def, "prefix", template_map=self.step_instance.vars)
         validate(isinstance(prefix, str) or prefix is None, "Step 'prefix' must be a string")
         self.prefix = prefix
 
-        suffix = pop_property(step_def, "suffix", template_map=self.step_instance.vars)
+        suffix = pop_property(step_instance.step_def, "suffix", template_map=self.step_instance.vars)
         validate(isinstance(suffix, str) or suffix is None, "Step 'suffix' must be a string")
         self.suffix = suffix
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return True
@@ -390,18 +369,15 @@ class PipelineStepTemplate:
         self.step_instance = step_instance
         self.pipeline = self.step_instance.pipeline
         self.block = step_instance.block
-        step_def = step_instance.step_def.copy()
 
-        vars = pop_property(step_def, "vars", template_map=self.step_instance.vars)
+        vars = pop_property(step_instance.step_def, "vars", template_map=self.step_instance.vars)
         validate(isinstance(vars, dict) or vars is None, "Step 'vars' must be a dictionary or absent")
         self.vars = vars
 
-        merge_vars = pop_property(step_def, "merge_vars", template_map=self.step_instance.vars, default=True)
+        merge_vars = pop_property(step_instance.step_def, "merge_vars", template_map=self.step_instance.vars, default=True)
         validate(isinstance(merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
         merge_vars = parse_bool(merge_vars)
         self.merge_vars = merge_vars
-
-        validate(len(step_def.keys()) == 0, f"Unknown properties on step definition: {list(step_def.keys())}")
 
     def per_block():
         return True

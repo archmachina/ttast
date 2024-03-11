@@ -58,3 +58,6 @@ pipeline:
   - type: stdout
     prefix: "******** BEGIN ********"
     suffix: "********  END  ********"
+    when:
+      - "'import' in tags or 'stdin' in tags"
+      #- "'second' in meta.filename"
