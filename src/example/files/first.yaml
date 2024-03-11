@@ -3,7 +3,7 @@ name: First YAML document
 
 tags: TTAST_TAGS
 
-original_filename: {{ meta.filename | default('Unknown') }}
+original_filename: {{ meta.import_filename | default('Unknown') }}
 ---
 name: Second document in first.yaml
 

@@ -91,6 +91,7 @@ class PipelineStepConfig:
 
         # Don't error on an empty configuration. Just return
         if content == "":
+            logger.debug("config: empty configuration. Ignoring.")
             return
 
         # Parse yaml if it is a string
@@ -159,7 +160,7 @@ class PipelineStepImport:
             with open(filename, "r", encoding="utf-8") as file:
                 content = file.read()
                 new_block = pipeline.TextBlock(content, tags=self.step_instance.apply_tags)
-                new_block.meta["filename"] = filename
+                new_block.meta["import_filename"] = filename
                 self.pipeline.blocks.append(new_block)
 
 
@@ -271,7 +272,6 @@ class PipelineStepSplitYaml:
 
         for line in lines:
 
-            logger.debug(f"split_yaml: line -> {line}")
             # Determine if we have the beginning of a yaml document
             if line == "---" and len(current) > 0:
                 documents.append("\n".join(current))
@@ -296,7 +296,8 @@ class PipelineStepSplitYaml:
         # Remove the original source block from the list
         self.pipeline.blocks.remove(self.block)
 
-        logger.debug(f"split_yaml: output {len(documents)} documents")
+        logger.debug(f"split_yaml: output 1 document -> {len(documents)} documents")
+
 
 class PipelineStepStdin:
     """

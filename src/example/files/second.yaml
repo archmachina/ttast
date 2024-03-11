@@ -9,4 +9,4 @@ config2: {{ override }}
 filename: {{ ttast_meta_filename }}
 tags: {{ tags }}
 
-original_filename: {{ meta.filename | default('Unknown') }}
+original_filename: {{ meta.import_filename | default('Unknown') }}
