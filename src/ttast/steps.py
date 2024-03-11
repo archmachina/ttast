@@ -89,6 +89,10 @@ class PipelineStepConfig:
     def _process_config_content(self, content):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
 
+        # Don't error on an empty configuration. Just return
+        if content == "":
+            return
+
         # Parse yaml if it is a string
         if isinstance(content, str):
             content = yaml.safe_load(content)
