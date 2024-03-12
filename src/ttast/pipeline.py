@@ -1,5 +1,6 @@
 
 import os
+import copy
 
 from .util import *
 from .exception import *
@@ -89,7 +90,7 @@ class PipelineStepInstance:
 
         # Create new vars for the instance, based on the pipeline vars, plus including
         # any block vars, if present
-        self.vars = self.pipeline.vars.copy()
+        self.vars = copy.deepcopy(self.pipeline.vars)
         if block is not None:
             self.vars["meta"] = block.meta
             self.vars["tags"] = block.tags
