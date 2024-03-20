@@ -20,7 +20,8 @@ def builtin_handlers():
         "split_yaml": builtin.HandlerSplitYaml,
         "stdin": builtin.HandlerStdin,
         "stdout": builtin.HandlerStdout,
-        "template": builtin.HandlerTemplate
+        "template": builtin.HandlerTemplate,
+        "sum": builtin.HandlerSum
     }
 
 def builtin_support_handlers():

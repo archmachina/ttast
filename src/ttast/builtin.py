@@ -6,6 +6,8 @@ import glob
 import os
 import inspect
 import copy
+import hashlib
+import textwrap
 
 from .util import *
 from . import types
@@ -316,6 +318,61 @@ class HandlerTemplate(types.Handler):
 
         template = environment.from_string(self.state.block.text)
         self.state.block.text = template.render(template_vars)
+
+def _block_sum(block):
+    validate(isinstance(block, types.TextBlock), "Invalid text block passed to _block_sum")
+
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
+
+    encode = block.text.encode("utf-8")
+    md5.update(encode)
+    sha1.update(encode)
+    sha256.update(encode)
+
+    block.meta["md5sum"] = md5.hexdigest()
+    block.meta["sha1sum"] = sha1.hexdigest()
+    block.meta["sha256sum"] = sha256.hexdigest()
+
+    short = 0
+    short_wrap = textwrap.wrap(sha256.hexdigest(), 8)
+    for item in short_wrap:
+        short = short ^ int(item, 16)
+
+    block.meta["shortsum"] = format(short, 'x')
+
+class HandlerSum(types.Handler):
+    """
+    """
+    def parse(self):
+        pass
+
+    def is_per_block():
+        return True
+
+    def run(self):
+        logger.debug(f"sum: document tags: {self.state.block.tags}")
+        logger.debug(f"sum: document meta: {self.state.block.meta}")
+
+        _block_sum(self.state.block)
+
+class SupportHandlerSum(types.SupportHandler):
+    """
+    """
+    def parse(self):
+        pass
+
+    def pre(self):
+        pass
+
+    def post(self):
+        if self.state.block is None:
+            return
+
+        _block_sum(self.state.block)
+
+        logger.debug(f"post-sum: document meta: {self.state.block.meta}")
 
 class SupportHandlerTags(types.SupportHandler):
     def parse(self):

@@ -73,7 +73,8 @@ class Pipeline:
         validate((all(inspect.isclass(x) and issubclass(x, SupportHandler)) for x in handlers), "Invalid handlers passed to add_support_handlers")
 
         for handler in handlers:
-            self._support_handlers.append(handler)
+            if handler not in self._support_handlers:
+                self._support_handlers.append(handler)
 
     def run(self):
         # This is a while loop with index to allow the pipeline to be appended to during processing
