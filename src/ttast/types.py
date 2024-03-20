@@ -67,34 +67,12 @@ class Pipeline:
 
         self._steps.append(step_def)
 
-    def add_builtin_handlers(self, handler_filter=None):
-        validate(isinstance(handler_filter, list) or handler_filter is None, "Invalid handler filter passed to add_builtin_handlers")
-        if handler_filter is not None:
-            validate(all(isinstance(x, str) for x in handler_filter), "Invalid handler list passed to add_builtin_handlers")
+    def add_handlers(self, handlers):
+        validate(isinstance(handlers, dict), "Invalid handlers passed to add_handlers")
+        validate((all(x is None or (inspect.isclass(x) and issubclass(x, Handler))) for x in handlers.values()), "Invalid handlers passed to add_handlers")
 
-        builtin_handlers = {
-            "config": HandlerConfig,
-            "import": HandlerImport,
-            "meta": HandlerMeta,
-            "replace": HandlerReplace,
-            "split_yaml": HandlerSplitYaml,
-            "stdin": HandlerStdin,
-            "stdout": HandlerStdout,
-            "template": HandlerTemplate
-        }
-
-        for key in builtin_handlers:
-            if handler_filter is None or key in handler_filter:
-                self._handlers[key] = builtin_handlers[key]
-
-    def add_custom_handlers(self, custom_handlers):
-        validate(isinstance(custom_handlers, dict) or custom_handlers is None, "Invalid custom_handlers passed to process_pipeline. Must be a dict of Handlers")
-        if custom_handlers is not None:
-            # Allow None entry for a handler to effectively disable a specific builtin handler
-            validate((all(x is None or (inspect.isclass(x) and issubclass(x, Handler))) for x in custom_handlers.values()), "Invalid custom_handlers passed to process_pipeline. Must be a dict of Handlers")
-
-        for key in custom_handlers:
-            self._handlers[key] = custom_handlers[key]
+        for key in handlers:
+            self._handlers[key] = handlers[key]
 
     def run(self):
         # This is a while loop with index to allow the pipeline to be appended to during processing
@@ -197,12 +175,11 @@ class PipelineStepState:
 
         # Create new vars for the instance, based on the pipeline vars, plus including
         # any block vars, if present
-        self.pipeline_vars = self.pipeline.copy_vars()
-        self.block_vars = self.pipeline_vars
+        self.vars = self.pipeline.copy_vars()
         if block is not None:
-            self.block_vars = copy.deepcopy(self.block_vars)
-            self.block_vars["meta"] = copy.deepcopy(block.meta)
-            self.block_vars["tags"] = copy.deepcopy(block.tags)
+            self.vars = copy.deepcopy(self.vars)
+            self.vars["meta"] = copy.deepcopy(block.meta)
+            self.vars["tags"] = copy.deepcopy(block.tags)
 
 class PrePostHandler:
     def init(self, state):
@@ -219,7 +196,7 @@ class PrePostHandler:
 class PostHandlerTags(PrePostHandler):
     def parse(self):
         # Apply tags
-        self.apply_tags = pop_property(self.state.step_def, "apply_tags", template_map=self.state.pipeline_vars, default=[])
+        self.apply_tags = pop_property(self.state.step_def, "apply_tags", template_map=self.state.vars, default=[])
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
@@ -234,7 +211,7 @@ class PostHandlerTags(PrePostHandler):
 class PreHandlerWhen(PrePostHandler):
     def parse(self):
         # When condition
-        self.when = pop_property(self.state.step_def, "when", template_map=self.state.pipeline_vars, default=[])
+        self.when = pop_property(self.state.step_def, "when", template_map=self.state.vars, default=[])
         validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
         if isinstance(self.when, str):
             self.when = [self.when]
@@ -245,25 +222,25 @@ class PreHandlerWhen(PrePostHandler):
             environment = jinja2.Environment()
             for condition in self.when:
                 template = environment.from_string("{{" + condition + "}}")
-                if not parse_bool(template.render(self.state.block_vars)):
+                if not parse_bool(template.render(self.state.vars)):
                     self.state.stop_processing = True
 
 class PreHandlerMatchTags(PrePostHandler):
     def parse(self):
         # Extract match any tags
-        self.match_any_tags = pop_property(self.state.step_def, "match_any_tags", template_map=self.state.pipeline_vars, default=[])
+        self.match_any_tags = pop_property(self.state.step_def, "match_any_tags", template_map=self.state.vars, default=[])
         validate(isinstance(self.match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.match_any_tags), "Step 'match_any_tags' must be a list of strings")
         self.match_any_tags = set(self.match_any_tags)
 
         # Extract match all tags
-        match_all_tags = pop_property(self.state.step_def, "match_all_tags", template_map=self.state.pipeline_vars, default=[])
+        match_all_tags = pop_property(self.state.step_def, "match_all_tags", template_map=self.state.vars, default=[])
         validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
         self.match_all_tags = set(match_all_tags)
 
         # Extract exclude tags
-        self.exclude_tags = pop_property(self.state.step_def, "exclude_tags", template_map=self.state.pipeline_vars, default=[])
+        self.exclude_tags = pop_property(self.state.step_def, "exclude_tags", template_map=self.state.vars, default=[])
         validate(isinstance(self.exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.exclude_tags), "Step 'exclude_tags' must be a list of strings")
         self.exclude_tags = set(self.exclude_tags)
@@ -306,16 +283,16 @@ class HandlerConfig(Handler):
     """
     def parse(self):
         # Read the content from the file and use _process_config_content to do the work
-        self.config_file = pop_property(self.state.step_def, "file", template_map=self.state.block_vars)
+        self.config_file = pop_property(self.state.step_def, "file", template_map=self.state.vars)
         validate(isinstance(self.config_file, str) or self.config_file is None, "Step 'config_file' must be a string or absent")
         validate(not isinstance(self.config_file, str) or self.config_file != "", "Step 'config_file' cannot be empty")
 
         # Extract the content var, which can be either a dict or yaml string
-        self.config_content = pop_property(self.state.step_def, "content", template_map=self.state.block_vars)
+        self.config_content = pop_property(self.state.step_def, "content", template_map=self.state.vars)
         validate(isinstance(self.config_content, (str, dict)) or self.config_content is None, "Step 'config_content' must be a string, dict or absent")
 
         # Extract stdin bool, indicating whether to read config from stdin
-        self.stdin = pop_property(self.state.step_def, "stdin", template_map=self.state.block_vars, default=False)
+        self.stdin = pop_property(self.state.step_def, "stdin", template_map=self.state.vars, default=False)
         validate(isinstance(self.stdin, (bool, str)), "Step 'stdin' must be a bool, bool like string or absent")
         self.stdin = parse_bool(self.stdin)
 
@@ -356,7 +333,7 @@ class HandlerConfig(Handler):
         validate(isinstance(content, dict), "Parsed configuration is not a dictionary")
 
         # Extract vars from the config
-        config_vars = pop_property(content, "vars", template_map=self.state.block_vars, default={})
+        config_vars = pop_property(content, "vars", template_map=self.state.vars, default={})
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
@@ -378,11 +355,11 @@ class HandlerImport(Handler):
     """
     """
     def parse(self):
-        self.import_files = pop_property(self.state.step_def, "files", template_map=self.state.block_vars)
+        self.import_files = pop_property(self.state.step_def, "files", template_map=self.state.vars)
         validate(isinstance(self.import_files, list), "Step 'files' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.import_files), "Step 'files' must be a list of strings")
 
-        self.recursive = pop_property(self.state.step_def, "recursive", template_map=self.state.block_vars)
+        self.recursive = pop_property(self.state.step_def, "recursive", template_map=self.state.vars)
         validate(isinstance(self.recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
         self.recursive = parse_bool(self.recursive)
 
@@ -416,7 +393,7 @@ class HandlerMeta(Handler):
     """
     """
     def parse(self):
-        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.block_vars)
+        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.vars)
         validate(isinstance(self.vars, dict), "Step 'vars' must be a dictionary of strings")
         validate(all(isinstance(x, str) for x in self.vars), "Step 'vars' must be a dictionary of strings")
 
@@ -434,14 +411,14 @@ class HandlerReplace(Handler):
     """
     """
     def parse(self):
-        self.replace = pop_property(self.state.step_def, "replace", template_map=self.state.block_vars, default={})
+        self.replace = pop_property(self.state.step_def, "replace", template_map=self.state.vars, default={})
         validate(isinstance(self.replace, list), "Step 'replace' must be a list")
         validate(all(isinstance(x, dict) for x in self.replace), "Step 'replace' items must be dictionaries")
         for item in self.replace:
             validate('key' in item and isinstance(item['key'], str), "Step 'replace' items must contain a string 'key' property")
             validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
 
-        self.regex = pop_property(self.state.step_def, "regex", template_map=self.state.block_vars, default=False)
+        self.regex = pop_property(self.state.step_def, "regex", template_map=self.state.vars, default=False)
         validate(isinstance(self.regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
         self.regex = parse_bool(self.regex)
 
@@ -459,13 +436,13 @@ class HandlerReplace(Handler):
             replace_key = replace_item['key']
             replace_value = replace_item['value']
 
-            replace_regex = pop_property(replace_item, "regex", template_map=self.state.block_vars, default=False)
+            replace_regex = pop_property(replace_item, "regex", template_map=self.state.vars, default=False)
             validate(isinstance(replace_regex, (bool, str)), "Replace item 'regex' must be a bool, bool like string or absent")
             replace_regex = parse_bool(replace_regex)
 
             # replace_value isn't templated by pop_property as it is a list of dictionaries, so it
             # needs to be manually done here
-            replace_value = template_if_string(replace_value, self.state.block_vars)
+            replace_value = template_if_string(replace_value, self.state.vars)
 
             logger.debug(f"replace: replacing regex({self.regex or replace_regex}): {replace_key} -> {replace_value}")
 
@@ -478,7 +455,7 @@ class HandlerSplitYaml(Handler):
     """
     """
     def parse(self):
-        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.block_vars, default=False)
+        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.vars, default=False)
         validate(isinstance(self.strip, (bool, str)), "Step 'strip' must be a bool or str value")
         self.strip = parse_bool(self.strip)
 
@@ -526,10 +503,10 @@ class HandlerStdin(Handler):
     """
     """
     def parse(self):
-        self.split = pop_property(self.state.step_def, "split", template_map=self.state.block_vars)
+        self.split = pop_property(self.state.step_def, "split", template_map=self.state.vars)
         validate(isinstance(self.split, str) or self.split is None, "Step 'split' must be a string")
 
-        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.block_vars, default=False)
+        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.vars, default=False)
         validate(isinstance(self.strip, (bool, str)), "Step 'strip' must be a bool or str value")
         self.strip = parse_bool(self.strip)
 
@@ -562,10 +539,10 @@ class HandlerStdout(Handler):
     """
     """
     def parse(self):
-        self.prefix = pop_property(self.state.step_def, "prefix", template_map=self.state.block_vars)
+        self.prefix = pop_property(self.state.step_def, "prefix", template_map=self.state.vars)
         validate(isinstance(self.prefix, str) or self.prefix is None, "Step 'prefix' must be a string")
 
-        self.suffix = pop_property(self.state.step_def, "suffix", template_map=self.state.block_vars)
+        self.suffix = pop_property(self.state.step_def, "suffix", template_map=self.state.vars)
         validate(isinstance(self.suffix, str) or self.suffix is None, "Step 'suffix' must be a string")
 
     def is_per_block():
@@ -587,10 +564,10 @@ class HandlerTemplate(Handler):
     """
     """
     def parse(self):
-        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.block_vars)
+        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.vars)
         validate(isinstance(self.vars, dict) or self.vars is None, "Step 'vars' must be a dictionary or absent")
 
-        self.merge_vars = pop_property(self.state.step_def, "merge_vars", template_map=self.state.block_vars, default=True)
+        self.merge_vars = pop_property(self.state.step_def, "merge_vars", template_map=self.state.vars, default=True)
         validate(isinstance(self.merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
         self.merge_vars = parse_bool(self.merge_vars)
 
@@ -598,7 +575,7 @@ class HandlerTemplate(Handler):
         return True
 
     def run(self):
-        template_vars = self.state.block_vars.copy()
+        template_vars = self.state.vars.copy()
 
         if self.vars is not None:
             for key in self.vars:
