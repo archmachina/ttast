@@ -6,20 +6,21 @@ import inspect
 from .util import *
 from .exception import *
 from . import types
+from . import builtin
 
 logger = logging.getLogger(__name__)
 
 def get_builtin_handlers():
 
     return {
-        "config": types.HandlerConfig,
-        "import": types.HandlerImport,
-        "meta": types.HandlerMeta,
-        "replace": types.HandlerReplace,
-        "split_yaml": types.HandlerSplitYaml,
-        "stdin": types.HandlerStdin,
-        "stdout": types.HandlerStdout,
-        "template": types.HandlerTemplate
+        "config": builtin.HandlerConfig,
+        "import": builtin.HandlerImport,
+        "meta": builtin.HandlerMeta,
+        "replace": builtin.HandlerReplace,
+        "split_yaml": builtin.HandlerSplitYaml,
+        "stdin": builtin.HandlerStdin,
+        "stdout": builtin.HandlerStdout,
+        "template": builtin.HandlerTemplate
     }
 
 def process_pipeline(pipeline_steps, builtin_handlers=True, custom_handlers=None):
