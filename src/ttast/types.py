@@ -567,10 +567,6 @@ class HandlerTemplate(Handler):
         self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.vars)
         validate(isinstance(self.vars, dict) or self.vars is None, "Step 'vars' must be a dictionary or absent")
 
-        self.merge_vars = pop_property(self.state.step_def, "merge_vars", template_map=self.state.vars, default=True)
-        validate(isinstance(self.merge_vars, (str, bool)), "Step 'merge_vars' must be a bool, bool like string or absent")
-        self.merge_vars = parse_bool(self.merge_vars)
-
     def is_per_block():
         return True
 
