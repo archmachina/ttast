@@ -63,7 +63,7 @@ def process_args() -> int:
 
                 steps.append(step_def)
 
-        pipeline.process_pipeline(steps)
+        pipeline.run_pipeline(steps)
 
     except Exception as e:  # pylint: disable=broad-exception-caught
         if debug:
