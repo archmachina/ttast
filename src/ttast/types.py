@@ -24,23 +24,105 @@ class TextBlock:
 
 class Pipeline:
     def __init__(self):
-        self.vars = {
+        self._steps = []
+        self._handlers = {}
+        self._vars = {
             "env": os.environ.copy()
         }
-        self.steps = []
-        self.blocks = []
+        self._blocks = []
+
+        self.step_limit = 100
+
+    def add_block(self, block):
+        validate(isinstance(block, TextBlock), "Invalid block passed to pipeline add_block")
+
+        self._blocks.append(block)
+
+    def remove_block(self, block):
+        validate(isinstance(block, TextBlock), "Invalid block passed to pipeline remove_block")
+
+        self._blocks.remove(block)
+
+    def copy_vars(self):
+        return copy.deepcopy(self._vars)
+
+    def set_var(self, key, value):
+        if key in ["env"]:
+            raise PipelineRunException(f"Disallowed key in pipeline set_var: {key}")
+
+        self._vars[key] = value
 
     def add_step(self, step_def):
         validate(isinstance(step_def, dict), "Invalid step definition passed to add_step")
 
-        if len(self.steps) > 100:
-            raise PipelineRunException("Reached limit of 100 steps in pipeline. This is a safe guard to prevent infinite recursion")
+        if self.step_limit > 0 and len(self._steps) > self.step_limit:
+            raise PipelineRunException(f"Reached limit of {self.step_limit} steps in pipeline. This is a safe guard to prevent infinite recursion")
 
-        self.steps.append(step_def)
+        self._steps.append(step_def)
+
+    def add_builtin_handlers(self, handler_filter=None):
+        validate(isinstance(handler_filter, list) or handler_filter is None, "Invalid handler filter passed to add_builtin_handlers")
+        if handler_filter is not None:
+            validate(all(isinstance(x, str) for x in handler_filter), "Invalid handler list passed to add_builtin_handlers")
+
+        builtin_handlers = {
+            "config": HandlerConfig,
+            "import": HandlerImport,
+            "meta": HandlerMeta,
+            "replace": HandlerReplace,
+            "split_yaml": HandlerSplitYaml,
+            "stdin": HandlerStdin,
+            "stdout": HandlerStdout,
+            "template": HandlerTemplate
+        }
+
+        for key in builtin_handlers:
+            if handler_filter is None or key in handler_filter:
+                self._handlers[key] = builtin_handlers[key]
+
+    def add_custom_handlers(self, custom_handlers):
+        validate(isinstance(custom_handlers, dict) or custom_handlers is None, "Invalid custom_handlers passed to process_pipeline. Must be a dict of Handlers")
+        if custom_handlers is not None:
+            # Allow None entry for a handler to effectively disable a specific builtin handler
+            validate((all(x is None or (inspect.isclass(x) and issubclass(x, Handler))) for x in custom_handlers.values()), "Invalid custom_handlers passed to process_pipeline. Must be a dict of Handlers")
+
+        for key in custom_handlers:
+            self._handlers[key] = custom_handlers[key]
+
+    def run(self):
+        # This is a while loop with index to allow the pipeline to be appended to during processing
+        index = 0
+        while index < len(self._steps):
+
+            # Clone current step definition
+            step_def = self._steps[index].copy()
+            index = index + 1
+
+            # Extract type
+            step_type = pop_property(step_def, "type", template_map=None)
+            validate(isinstance(step_type, str) and step_type != "", "Step 'type' is required and must be a non empty string")
+
+            # Retrieve the handler for the step type
+            handler = self._handlers.get(step_type)
+            if handler is None:
+                raise PipelineRunException(f"Invalid step type in step {step_type}")
+
+            # Create an instance per block for the step type, or a single instance for step types
+            # that are not per block.
+            if handler.is_per_block():
+                # Create a copy of blocks to allow steps to alter the block list while we iterate
+                block_list_copy = self._blocks.copy()
+
+                for block in block_list_copy:
+                    instance = PipelineStepInstance(step_def, pipeline=self, handler=handler, block=block)
+                    instance.run()
+            else:
+                instance = PipelineStepInstance(step_def, pipeline=self, handler=handler)
+                instance.run()
 
 class PipelineStepInstance:
     def __init__(self, step_def, pipeline, handler, block=None):
-        validate(isinstance(step_def, dict), "Invalid step_Def passed to PipelineStepInstance")
+        validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepInstance")
         validate(isinstance(pipeline, Pipeline), "Invalid pipeline passed to PipelineStepInstance")
         validate((inspect.isclass(handler) and issubclass(handler, Handler)), "Invalid handler passed to PipelineStepInstance")
         validate(isinstance(block, TextBlock) or block is None, "Invalid block passed to PipelineStepInstance")
@@ -52,42 +134,43 @@ class PipelineStepInstance:
 
         # Create new vars for the instance, based on the pipeline vars, plus including
         # any block vars, if present
-        self.vars = copy.deepcopy(self.pipeline.vars)
+        pipeline_vars = self.pipeline.copy_vars()
+        self.vars = copy.deepcopy(pipeline_vars)
         if block is not None:
             self.vars["meta"] = copy.deepcopy(block.meta)
             self.vars["tags"] = copy.deepcopy(block.tags)
 
         # Extract match any tags
-        match_any_tags = pop_property(self.step_def, "match_any_tags", template_map=self.pipeline.vars, default=[])
+        match_any_tags = pop_property(self.step_def, "match_any_tags", template_map=pipeline_vars, default=[])
         validate(isinstance(match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_any_tags), "Step 'match_any_tags' must be a list of strings")
         self.match_any_tags = set(match_any_tags)
 
         # Extract match all tags
-        match_all_tags = pop_property(self.step_def, "match_all_tags", template_map=self.pipeline.vars, default=[])
+        match_all_tags = pop_property(self.step_def, "match_all_tags", template_map=pipeline_vars, default=[])
         validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
         self.match_all_tags = set(match_all_tags)
 
         # Extract exclude tags
-        exclude_tags = pop_property(self.step_def, "exclude_tags", template_map=self.pipeline.vars, default=[])
+        exclude_tags = pop_property(self.step_def, "exclude_tags", template_map=pipeline_vars, default=[])
         validate(isinstance(exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in exclude_tags), "Step 'exclude_tags' must be a list of strings")
         self.exclude_tags = set(exclude_tags)
 
         # Apply tags
-        self.apply_tags = pop_property(self.step_def, "apply_tags", template_map=self.pipeline.vars, default=[])
+        self.apply_tags = pop_property(self.step_def, "apply_tags", template_map=pipeline_vars, default=[])
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
         # When condition
-        self.when = pop_property(self.step_def, "when", template_map=self.pipeline.vars, default=[])
+        self.when = pop_property(self.step_def, "when", template_map=pipeline_vars, default=[])
         validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
         if isinstance(self.when, str):
             self.when = [self.when]
         validate(all(isinstance(x, str) for x in self.when), "Step 'when' must be a string or list of strings")
 
-    def process(self):
+    def run(self):
 
         if not self._should_process():
             return
@@ -96,7 +179,7 @@ class PipelineStepInstance:
         instance.init(self)
 
         # Parse the step definition
-        instance.parse()
+        remainder = instance.parse()
 
         # The parse function should extract all of the relevant properties from the step_def, leaving any unknown properties.
         # Check that there are no properties left in the step definition
@@ -212,7 +295,7 @@ class HandlerConfig(Handler):
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
-            self.pipeline.vars[config_var_name] = config_vars[config_var_name]
+            self.pipeline.set_var(config_var_name, config_vars[config_var_name])
 
         # Extract pipeline steps from the config
         config_pipeline = pop_property(content, "pipeline", template_map=None, default=[])
@@ -259,7 +342,7 @@ class HandlerImport(Handler):
                 content = file.read()
                 new_block = TextBlock(content, tags=self.step_instance.apply_tags)
                 new_block.meta["import_filename"] = filename
-                self.pipeline.blocks.append(new_block)
+                self.pipeline.add_block(new_block)
 
 class HandlerMeta(Handler):
     """
@@ -364,10 +447,10 @@ class HandlerSplitYaml(Handler):
             new_block.meta = self.block.meta.copy()
             new_block.tags = self.block.tags.copy()
 
-            self.pipeline.blocks.append(new_block)
+            self.pipeline.add_block(new_block)
 
         # Remove the original source block from the list
-        self.pipeline.blocks.remove(self.block)
+        self.pipeline.remove_block(self.block)
 
         logger.debug(f"split_yaml: output 1 document -> {len(documents)} documents")
 
@@ -402,7 +485,7 @@ class HandlerStdin(Handler):
 
         # Add the stdin items to the list of text blocks
         for item in stdin_items:
-            self.pipeline.blocks.append(TextBlock(item, tags=self.step_instance.apply_tags))
+            self.pipeline.add_block(TextBlock(item, tags=self.step_instance.apply_tags))
 
 class HandlerStdout(Handler):
     """
