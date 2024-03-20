@@ -316,3 +316,82 @@ class HandlerTemplate(types.Handler):
 
         template = environment.from_string(self.state.block.text)
         self.state.block.text = template.render(template_vars)
+
+class SupportHandlerTags(types.SupportHandler):
+    def parse(self):
+        # Apply tags
+        self.apply_tags = pop_property(self.state.step_def, "apply_tags", template_map=self.state.vars, default=[])
+        validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
+
+        # Save apply tags here so that other handlers can access it
+        self.state.shared["apply_tags"] = self.apply_tags
+
+    def pre(self):
+        pass
+
+    def post(self):
+        if self.state.block is not None:
+            for tag in self.apply_tags:
+                self.state.block.tags.add(tag)
+
+class SupportHandlerWhen(types.SupportHandler):
+    def parse(self):
+        # When condition
+        self.when = pop_property(self.state.step_def, "when", template_map=self.state.vars, default=[])
+        validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
+        if isinstance(self.when, str):
+            self.when = [self.when]
+        validate(all(isinstance(x, str) for x in self.when), "Step 'when' must be a string or list of strings")
+
+    def pre(self):
+        if len(self.when) > 0:
+            environment = jinja2.Environment()
+            for condition in self.when:
+                template = environment.from_string("{{" + condition + "}}")
+                if not parse_bool(template.render(self.state.vars)):
+                    self.state.stop_processing = True
+
+    def post(self):
+        pass
+
+class SupportHandlerMatchTags(types.SupportHandler):
+    def parse(self):
+        # Extract match any tags
+        self.match_any_tags = pop_property(self.state.step_def, "match_any_tags", template_map=self.state.vars, default=[])
+        validate(isinstance(self.match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in self.match_any_tags), "Step 'match_any_tags' must be a list of strings")
+        self.match_any_tags = set(self.match_any_tags)
+
+        # Extract match all tags
+        match_all_tags = pop_property(self.state.step_def, "match_all_tags", template_map=self.state.vars, default=[])
+        validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
+        self.match_all_tags = set(match_all_tags)
+
+        # Extract exclude tags
+        self.exclude_tags = pop_property(self.state.step_def, "exclude_tags", template_map=self.state.vars, default=[])
+        validate(isinstance(self.exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
+        validate(all(isinstance(x, str) for x in self.exclude_tags), "Step 'exclude_tags' must be a list of strings")
+        self.exclude_tags = set(self.exclude_tags)
+
+    def pre(self):
+        if len(self.match_any_tags) > 0:
+            # If there are any 'match_any_tags', then at least one of them has to match with the document
+            if len(self.match_any_tags.intersection(self.state.block.tags)) == 0:
+                self.state.stop_processing = True
+
+        if len(self.match_all_tags) > 0:
+            # If there are any 'match_all_tags', then all of those tags must match the document
+            for tag in self.match_all_tags:
+                if tag not in self.state.block.tags:
+                    self.state.stop_processing = True
+
+        if len(self.exclude_tags) > 0:
+            # If there are any exclude tags and any are present in the block, it isn't a match
+            for tag in self.exclude_tags:
+                if tag in self.state.block.tags:
+                    self.state.stop_processing = True
+
+    def post(self):
+        pass

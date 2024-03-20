@@ -10,7 +10,7 @@ from . import builtin
 
 logger = logging.getLogger(__name__)
 
-def get_builtin_handlers():
+def builtin_handlers():
 
     return {
         "config": builtin.HandlerConfig,
@@ -23,24 +23,30 @@ def get_builtin_handlers():
         "template": builtin.HandlerTemplate
     }
 
-def process_pipeline(pipeline_steps, builtin_handlers=True, custom_handlers=None):
+def builtin_support_handlers():
+
+    return [
+        builtin.SupportHandlerMatchTags,
+        builtin.SupportHandlerWhen,
+        builtin.SupportHandlerTags
+    ]
+
+def build_default_pipeline():
+    pipeline = types.Pipeline()
+
+    pipeline.add_handlers(builtin_handlers())
+    pipeline.add_support_handlers(builtin_support_handlers())
+
+    return pipeline
+
+def process_pipeline(pipeline_steps):
     validate(isinstance(pipeline_steps, list) and all(isinstance(x, dict) for x in pipeline_steps),
         "Pipeline steps passed to process_pipeline must be a list of dictionaries")
-    validate(isinstance(builtin_handlers, bool), "Invalid builtin_handlers passed to process_pipeline. Must be bool")
-    validate(isinstance(custom_handlers, dict) or custom_handlers is None, "Invalid custom_handlers passed to process_pipeline. Must be a dict of Handlers")
 
     # Define the pipeline and add all pipeline steps
-    pipeline = types.Pipeline()
+    pipeline = build_default_pipeline()
     for step in pipeline_steps:
         pipeline.add_step(step)
-
-    # Add built in handlers, if required
-    if builtin_handlers:
-        pipeline.add_handlers(get_builtin_handlers())
-
-    # Add any defined custom handlers
-    if custom_handlers is not None:
-        pipeline.add_handlers(custom_handlers)
 
     # Run the pipeline to completion
     pipeline.run()

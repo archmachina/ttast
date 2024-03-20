@@ -26,13 +26,7 @@ class Pipeline:
     def __init__(self):
         self._steps = []
         self._handlers = {}
-        self._pre_handlers = [
-            PreHandlerMatchTags,
-            PreHandlerWhen
-        ]
-        self._post_handlers = [
-            PostHandlerTags
-        ]
+        self._support_handlers = []
         self._vars = {
             "env": os.environ.copy()
         }
@@ -73,6 +67,13 @@ class Pipeline:
 
         for key in handlers:
             self._handlers[key] = handlers[key]
+
+    def add_support_handlers(self, handlers):
+        validate(isinstance(handlers, list), "Invalid handlers passed to add_support_handlers")
+        validate((all(inspect.isclass(x) and issubclass(x, SupportHandler)) for x in handlers), "Invalid handlers passed to add_support_handlers")
+
+        for handler in handlers:
+            self._support_handlers.append(handler)
 
     def run(self):
         # This is a while loop with index to allow the pipeline to be appended to during processing
@@ -116,18 +117,11 @@ class Pipeline:
         # Parsing
         #
 
-        # Initialise and parse pre handlers
-        pre_handlers = [x() for x in self._pre_handlers]
-        for pre in pre_handlers:
-            pre.init(state)
-            pre.parse()
-
-        # Initialise and parse post handlers
-        # Parsing should happen before the main handler is parsed or executed
-        post_handlers = [x() for x in self._post_handlers]
-        for post in post_handlers:
-            post.init(state)
-            post.parse()
+        # Initialise and parse support handlers
+        support_handlers = [x() for x in self._support_handlers]
+        for support in support_handlers:
+            support.init(state)
+            support.parse()
 
         # Initialise and parse the main handler
         instance = handler()
@@ -143,8 +137,8 @@ class Pipeline:
         #
 
         # Run any preprocessing handlers
-        for pre in pre_handlers:
-            pre.run()
+        for support in support_handlers:
+            support.pre()
             if state.stop_processing:
                 return
 
@@ -154,8 +148,8 @@ class Pipeline:
             return
 
         # Run any post processing handlers
-        for post in post_handlers:
-            post.run()
+        for support in support_handlers:
+            support.post()
             if state.stop_processing:
                 return
 
@@ -181,87 +175,20 @@ class PipelineStepState:
             self.vars["meta"] = copy.deepcopy(block.meta)
             self.vars["tags"] = copy.deepcopy(block.tags)
 
-class PrePostHandler:
+class SupportHandler:
     def init(self, state):
-        validate(isinstance(state, PipelineStepState), "Invalid step state passed to PrePostHandler")
+        validate(isinstance(state, PipelineStepState), "Invalid step state passed to SupportHandler")
 
         self.state = state
 
     def parse(self):
-        raise PipelineRunException("parse undefined in PrePostHandler")
+        raise PipelineRunException("parse undefined in SupportHandler")
 
-    def run(self):
-        raise PipelineRunException("run undefined in PrePostHandler")
+    def pre(self):
+        raise PipelineRunException("pre undefined in SupportHandler")
 
-class PostHandlerTags(PrePostHandler):
-    def parse(self):
-        # Apply tags
-        self.apply_tags = pop_property(self.state.step_def, "apply_tags", template_map=self.state.vars, default=[])
-        validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
-        validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
-
-        # Save apply tags here so that other handlers can access it
-        self.state.shared["apply_tags"] = self.apply_tags
-
-    def run(self):
-        if self.state.block is not None:
-            for tag in self.apply_tags:
-                self.state.block.tags.add(tag)
-
-class PreHandlerWhen(PrePostHandler):
-    def parse(self):
-        # When condition
-        self.when = pop_property(self.state.step_def, "when", template_map=self.state.vars, default=[])
-        validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
-        if isinstance(self.when, str):
-            self.when = [self.when]
-        validate(all(isinstance(x, str) for x in self.when), "Step 'when' must be a string or list of strings")
-
-    def run(self):
-        if len(self.when) > 0:
-            environment = jinja2.Environment()
-            for condition in self.when:
-                template = environment.from_string("{{" + condition + "}}")
-                if not parse_bool(template.render(self.state.vars)):
-                    self.state.stop_processing = True
-
-class PreHandlerMatchTags(PrePostHandler):
-    def parse(self):
-        # Extract match any tags
-        self.match_any_tags = pop_property(self.state.step_def, "match_any_tags", template_map=self.state.vars, default=[])
-        validate(isinstance(self.match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
-        validate(all(isinstance(x, str) for x in self.match_any_tags), "Step 'match_any_tags' must be a list of strings")
-        self.match_any_tags = set(self.match_any_tags)
-
-        # Extract match all tags
-        match_all_tags = pop_property(self.state.step_def, "match_all_tags", template_map=self.state.vars, default=[])
-        validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
-        validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
-        self.match_all_tags = set(match_all_tags)
-
-        # Extract exclude tags
-        self.exclude_tags = pop_property(self.state.step_def, "exclude_tags", template_map=self.state.vars, default=[])
-        validate(isinstance(self.exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
-        validate(all(isinstance(x, str) for x in self.exclude_tags), "Step 'exclude_tags' must be a list of strings")
-        self.exclude_tags = set(self.exclude_tags)
-
-    def run(self):
-        if len(self.match_any_tags) > 0:
-            # If there are any 'match_any_tags', then at least one of them has to match with the document
-            if len(self.match_any_tags.intersection(self.state.block.tags)) == 0:
-                self.state.stop_processing = True
-
-        if len(self.match_all_tags) > 0:
-            # If there are any 'match_all_tags', then all of those tags must match the document
-            for tag in self.match_all_tags:
-                if tag not in self.state.block.tags:
-                    self.state.stop_processing = True
-
-        if len(self.exclude_tags) > 0:
-            # If there are any exclude tags and any are present in the block, it isn't a match
-            for tag in self.exclude_tags:
-                if tag in self.state.block.tags:
-                    self.state.stop_processing = True
+    def post(self):
+        raise PipelineRunException("post undefined in SupportHandler")
 
 class Handler:
     def is_per_block(self):
