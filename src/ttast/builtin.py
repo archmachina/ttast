@@ -136,9 +136,6 @@ class HandlerMeta(types.Handler):
         return True
 
     def run(self, block):
-        logger.debug(f"meta: document tags: {block.tags}")
-        logger.debug(f"meta: document meta: {block.meta}")
-
         for key in self.vars:
             block.meta[key] = self.vars[key]
 
@@ -161,9 +158,6 @@ class HandlerReplace(types.Handler):
         return True
 
     def run(self, block):
-        logger.debug(f"replace: document tags: {block.tags}")
-        logger.debug(f"replace: document meta: {block.meta}")
-
         for replace_item in self.replace:
             # Copy the dictionary as we'll change it when removing values
             replace_item = replace_item.copy()
@@ -198,10 +192,6 @@ class HandlerSplitYaml(types.Handler):
         return True
 
     def run(self, block):
-        # Read content from stdin
-        logger.debug(f"split_yaml: document tags: {block.tags}")
-        logger.debug(f"split_yaml: document meta: {block.meta}")
-
         lines = block.text.splitlines()
         documents = []
         current = []
@@ -291,9 +281,6 @@ class HandlerStdout(types.Handler):
         return True
 
     def run(self, block):
-        logger.debug(f"stdout: document tags: {block.tags}")
-        logger.debug(f"stdout: document meta: {block.meta}")
-
         if self.prefix is not None:
             print(self.prefix)
 
@@ -320,10 +307,6 @@ class HandlerTemplate(types.Handler):
                 template_vars[key] = self.vars[key]
 
         environment = jinja2.Environment()
-
-        logger.debug(f"template: document tags: {block.tags}")
-        logger.debug(f"template: document meta: {block.meta}")
-
         template = environment.from_string(block.text)
         block.text = template.render(template_vars)
 
@@ -360,9 +343,6 @@ class HandlerSum(types.Handler):
         return True
 
     def run(self, block):
-        logger.debug(f"sum: document tags: {block.tags}")
-        logger.debug(f"sum: document meta: {block.meta}")
-
         _block_sum(block)
 
 class SupportHandlerSum(types.SupportHandler):
@@ -379,8 +359,6 @@ class SupportHandlerSum(types.SupportHandler):
             return
 
         _block_sum(block)
-
-        logger.debug(f"post-sum: document meta: {block.meta}")
 
 class SupportHandlerTags(types.SupportHandler):
     def parse(self):

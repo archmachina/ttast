@@ -160,9 +160,15 @@ class Pipeline:
         block_list = [block]
         working_list = []
 
+        if block is not None:
+            logger.debug(f"Operating on block: {hex(id(block))}")
+            logger.debug(f" meta: {block.meta}")
+            logger.debug(f" tags: {block.tags}")
+
         # Run any preprocessing handlers
         for support in support_handlers:
             for current_block in block_list:
+                logger.debug(f"Calling pre support handler ({support}) for block {hex(id(current_block))}")
                 result = support.pre(current_block)
                 if result is None:
                     # If the handler didn't return anything, then just add the current block
@@ -182,6 +188,7 @@ class Pipeline:
 
         # Perform processing for the main handler
         for current_block in block_list:
+            logger.debug(f"Calling handler ({instance}) for block {hex(id(current_block))}")
             result = instance.run(current_block)
             if result is None:
                 working_list.append(current_block)
@@ -195,6 +202,7 @@ class Pipeline:
         # Run any post processing handlers
         for support in support_handlers:
             for current_block in block_list:
+                logger.debug(f"Calling post support handler ({support}) for block {hex(id(current_block))}")
                 result = support.post(current_block)
                 if result is None:
                     working_list.append(current_block)
