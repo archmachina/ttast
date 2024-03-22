@@ -345,6 +345,8 @@ class HandlerSum(types.Handler):
     def run(self, block):
         _block_sum(block)
 
+        logger.debug(f"sum: document short sum: {block.meta['shortsum']}")
+
 class SupportHandlerSum(types.SupportHandler):
     """
     """
@@ -359,6 +361,8 @@ class SupportHandlerSum(types.SupportHandler):
             return
 
         _block_sum(block)
+
+        logger.debug(f"sum: document short sum: {block.meta['shortsum']}")
 
 class SupportHandlerTags(types.SupportHandler):
     def parse(self):
