@@ -6,8 +6,11 @@ import glob
 import os
 import inspect
 import copy
+import logging
 
 from .util import *
+
+logger = logging.getLogger(__name__)
 
 class TextBlock:
     def __init__(self, text, *, tags=None):
@@ -112,7 +115,14 @@ class Pipeline:
         validate(inspect.isclass(handler) and issubclass(handler, Handler), "Invalid handler passed to _process_step_instance")
         validate(block is None or isinstance(block, TextBlock), "Invalid text block passed to _process_step_instance")
 
-        state = PipelineStepState(step_def, self, block)
+        # Create new vars for the instance, based on the pipeline vars, plus including
+        # any block vars, if present
+        step_vars = self.copy_vars()
+        if block is not None:
+            step_vars["meta"] = copy.deepcopy(block.meta)
+            step_vars["tags"] = copy.deepcopy(block.tags)
+
+        state = PipelineStepState(step_def, self, step_vars)
 
         #
         # Parsing
@@ -127,7 +137,7 @@ class Pipeline:
         # Initialise and parse the main handler
         instance = handler()
         instance.init(state)
-        remainder = instance.parse()
+        instance.parse()
 
         # At this point, there should be no properties left in the dictionary as all of the handlers should have
         # extracted their own properties.
@@ -137,44 +147,73 @@ class Pipeline:
         # Execution
         #
 
+        # Processing may start with a single block, which may become more, none or stay at one
+        # block.
+        # If a block is split, then two blocks replace it, while a block may disappear from the list
+        # if the handler filters it out.
+        # Any new blocks should also be processed by the following handlers, so the working block
+        # list is dynamic.
+
+        # block_list contains a list of the blocks to operate on for the current handler, while working_list
+        # is the list being generated for the next handler to operate on.
+
+        block_list = [block]
+        working_list = []
+
         # Run any preprocessing handlers
         for support in support_handlers:
-            support.pre()
-            if state.stop_processing:
-                return
+            for current_block in block_list:
+                result = support.pre(current_block)
+                if result is None:
+                    # If the handler didn't return anything, then just add the current block
+                    # for the next round of handlers
+                    working_list.append(current_block)
+                else:
+                    # The handler returned a replacement list of blocks, which should replace the current
+                    # block in the block list for the next round of handlers.
+                    # This list could also be empty, removing the block from further processing
+                    for x in result:
+                        working_list.append(x)
+
+            # Update block_list with the new list of blocks for the next round of handlers and reset
+            # working_list
+            block_list = working_list
+            working_list = []
 
         # Perform processing for the main handler
-        instance.run()
-        if state.stop_processing:
-            return
+        for current_block in block_list:
+            result = instance.run(current_block)
+            if result is None:
+                working_list.append(current_block)
+            else:
+                for x in result:
+                    working_list.append(x)
+
+        block_list = working_list
+        working_list = []
 
         # Run any post processing handlers
         for support in support_handlers:
-            support.post()
-            if state.stop_processing:
-                return
+            for current_block in block_list:
+                result = support.post(current_block)
+                if result is None:
+                    working_list.append(current_block)
+                else:
+                    for x in result:
+                        working_list.append(x)
+
+            block_list = working_list
+            working_list = []
 
 class PipelineStepState:
-    def __init__(self, step_def, pipeline, block=None):
+    def __init__(self, step_def, pipeline, step_vars):
         validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepState")
         validate(isinstance(pipeline, Pipeline) or pipeline is None, "Invalid pipeline passed to PipelineStepState")
-        validate(isinstance(block, TextBlock) or block is None, "Invalid block passed to PipelineStepState")
+        validate(isinstance(step_vars, dict), "Invalid step vars passed to PipelineStepState")
 
         self.step_def = step_def.copy()
-        self.block = block
         self.pipeline = pipeline
-        self.stop_processing = False
-
-        # Shared state that handlers can use to pass information
-        self.shared = {}
-
-        # Create new vars for the instance, based on the pipeline vars, plus including
-        # any block vars, if present
-        self.vars = self.pipeline.copy_vars()
-        if block is not None:
-            self.vars = copy.deepcopy(self.vars)
-            self.vars["meta"] = copy.deepcopy(block.meta)
-            self.vars["tags"] = copy.deepcopy(block.tags)
+        self.vars = step_vars
 
 class SupportHandler:
     def init(self, state):
@@ -185,10 +224,10 @@ class SupportHandler:
     def parse(self):
         raise PipelineRunException("parse undefined in SupportHandler")
 
-    def pre(self):
+    def pre(self, block):
         raise PipelineRunException("pre undefined in SupportHandler")
 
-    def post(self):
+    def post(self, block):
         raise PipelineRunException("post undefined in SupportHandler")
 
 class Handler:
@@ -203,5 +242,5 @@ class Handler:
     def parse(self):
         raise PipelineRunException("parse undefined in Handler")
 
-    def run(self):
+    def run(self, block):
         raise PipelineRunException("run undefined in Handler")

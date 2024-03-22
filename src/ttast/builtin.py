@@ -33,7 +33,7 @@ class HandlerConfig(types.Handler):
     def is_per_block():
         return False
 
-    def run(self):
+    def run(self, block):
         if self.config_file is not None:
             logger.debug(f"config: including config from file {self.config_file}")
             with open(self.config_file, "r", encoding='utf-8') as file:
@@ -100,7 +100,7 @@ class HandlerImport(types.Handler):
     def is_per_block():
         return False
 
-    def run(self):
+    def run(self, block):
         filenames = set()
         for import_file in self.import_files:
             logger.debug(f"import: processing file glob: {import_file}")
@@ -112,16 +112,17 @@ class HandlerImport(types.Handler):
         filenames = list(filenames)
         filenames.sort()
 
-        # Get apply tags
-        apply_tags = self.state.shared.get("apply_tags", [])
-
+        new_blocks = []
         for filename in filenames:
             logger.debug(f"import: reading file {filename}")
             with open(filename, "r", encoding="utf-8") as file:
                 content = file.read()
-                new_block = types.TextBlock(content, tags=apply_tags)
+                new_block = types.TextBlock(content)
                 new_block.meta["import_filename"] = filename
                 self.state.pipeline.add_block(new_block)
+                new_blocks.append(new_block)
+
+        return new_blocks
 
 class HandlerMeta(types.Handler):
     """
@@ -134,12 +135,12 @@ class HandlerMeta(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
-        logger.debug(f"meta: document tags: {self.state.block.tags}")
-        logger.debug(f"meta: document meta: {self.state.block.meta}")
+    def run(self, block):
+        logger.debug(f"meta: document tags: {block.tags}")
+        logger.debug(f"meta: document meta: {block.meta}")
 
         for key in self.vars:
-            self.state.block.meta[key] = self.vars[key]
+            block.meta[key] = self.vars[key]
 
 class HandlerReplace(types.Handler):
     """
@@ -159,9 +160,9 @@ class HandlerReplace(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
-        logger.debug(f"replace: document tags: {self.state.block.tags}")
-        logger.debug(f"replace: document meta: {self.state.block.meta}")
+    def run(self, block):
+        logger.debug(f"replace: document tags: {block.tags}")
+        logger.debug(f"replace: document meta: {block.meta}")
 
         for replace_item in self.replace:
             # Copy the dictionary as we'll change it when removing values
@@ -181,9 +182,9 @@ class HandlerReplace(types.Handler):
             logger.debug(f"replace: replacing regex({self.regex or replace_regex}): {replace_key} -> {replace_value}")
 
             if self.regex or replace_regex:
-                self.state.block.text = re.sub(replace_key, replace_value, self.state.block.text)
+                block.text = re.sub(replace_key, replace_value, block.text)
             else:
-                self.state.block.text = self.state.block.text.replace(replace_key, replace_value)
+                block.text = block.text.replace(replace_key, replace_value)
 
 class HandlerSplitYaml(types.Handler):
     """
@@ -196,12 +197,12 @@ class HandlerSplitYaml(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
+    def run(self, block):
         # Read content from stdin
-        logger.debug(f"split_yaml: document tags: {self.state.block.tags}")
-        logger.debug(f"split_yaml: document meta: {self.state.block.meta}")
+        logger.debug(f"split_yaml: document tags: {block.tags}")
+        logger.debug(f"split_yaml: document meta: {block.meta}")
 
-        lines = self.state.block.text.splitlines()
+        lines = block.text.splitlines()
         documents = []
         current = []
 
@@ -220,18 +221,25 @@ class HandlerSplitYaml(types.Handler):
         if self.strip:
             documents = [x.strip() for x in documents]
 
+        # If we have a single document and it's the same as the
+        # original block, just exit
+        if len(documents) == 1 and documents[0] == block.text:
+            return
+
         # Add all documents to the pipeline text block list
-        for item in documents:
-            new_block = types.TextBlock(item)
-            new_block.meta = self.state.block.meta.copy()
-            new_block.tags = self.state.block.tags.copy()
+        new_blocks = [types.TextBlock(item) for item in documents]
+        for new_block in new_blocks:
+            new_block.meta = copy.deepcopy(block.meta)
+            new_block.tags = copy.deepcopy(block.tags)
 
             self.state.pipeline.add_block(new_block)
 
         # Remove the original source block from the list
-        self.state.pipeline.remove_block(self.state.block)
+        self.state.pipeline.remove_block(block)
 
         logger.debug(f"split_yaml: output 1 document -> {len(documents)} documents")
+
+        return new_blocks
 
 class HandlerStdin(types.Handler):
     """
@@ -247,7 +255,7 @@ class HandlerStdin(types.Handler):
     def is_per_block():
         return False
 
-    def run(self):
+    def run(self, block):
         # Read content from stdin
         logger.debug("stdin: reading document from stdin")
         stdin_content = sys.stdin.read()
@@ -262,12 +270,12 @@ class HandlerStdin(types.Handler):
         if self.strip:
             stdin_items = [x.strip() for x in stdin_items]
 
-        # Get apply tags
-        apply_tags = self.state.shared.get("apply_tags", [])
-
         # Add the stdin items to the list of text blocks
-        for item in stdin_items:
-            self.state.pipeline.add_block(types.TextBlock(item, tags=apply_tags))
+        new_blocks = [types.TextBlock(item) for item in stdin_items]
+        for item in new_blocks:
+            self.state.pipeline.add_block(item)
+
+        return new_blocks
 
 class HandlerStdout(types.Handler):
     """
@@ -282,14 +290,14 @@ class HandlerStdout(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
-        logger.debug(f"stdout: document tags: {self.state.block.tags}")
-        logger.debug(f"stdout: document meta: {self.state.block.meta}")
+    def run(self, block):
+        logger.debug(f"stdout: document tags: {block.tags}")
+        logger.debug(f"stdout: document meta: {block.meta}")
 
         if self.prefix is not None:
             print(self.prefix)
 
-        print(self.state.block.text)
+        print(block.text)
 
         if self.suffix is not None:
             print(self.suffix)
@@ -304,7 +312,7 @@ class HandlerTemplate(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
+    def run(self, block):
         template_vars = self.state.vars.copy()
 
         if self.vars is not None:
@@ -313,11 +321,11 @@ class HandlerTemplate(types.Handler):
 
         environment = jinja2.Environment()
 
-        logger.debug(f"template: document tags: {self.state.block.tags}")
-        logger.debug(f"template: document meta: {self.state.block.meta}")
+        logger.debug(f"template: document tags: {block.tags}")
+        logger.debug(f"template: document meta: {block.meta}")
 
-        template = environment.from_string(self.state.block.text)
-        self.state.block.text = template.render(template_vars)
+        template = environment.from_string(block.text)
+        block.text = template.render(template_vars)
 
 def _block_sum(block):
     validate(isinstance(block, types.TextBlock), "Invalid text block passed to _block_sum")
@@ -351,11 +359,11 @@ class HandlerSum(types.Handler):
     def is_per_block():
         return True
 
-    def run(self):
-        logger.debug(f"sum: document tags: {self.state.block.tags}")
-        logger.debug(f"sum: document meta: {self.state.block.meta}")
+    def run(self, block):
+        logger.debug(f"sum: document tags: {block.tags}")
+        logger.debug(f"sum: document meta: {block.meta}")
 
-        _block_sum(self.state.block)
+        _block_sum(block)
 
 class SupportHandlerSum(types.SupportHandler):
     """
@@ -363,16 +371,16 @@ class SupportHandlerSum(types.SupportHandler):
     def parse(self):
         pass
 
-    def pre(self):
+    def pre(self, block):
         pass
 
-    def post(self):
-        if self.state.block is None:
+    def post(self, block):
+        if block is None:
             return
 
-        _block_sum(self.state.block)
+        _block_sum(block)
 
-        logger.debug(f"post-sum: document meta: {self.state.block.meta}")
+        logger.debug(f"post-sum: document meta: {block.meta}")
 
 class SupportHandlerTags(types.SupportHandler):
     def parse(self):
@@ -381,16 +389,13 @@ class SupportHandlerTags(types.SupportHandler):
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
-        # Save apply tags here so that other handlers can access it
-        self.state.shared["apply_tags"] = self.apply_tags
-
-    def pre(self):
+    def pre(self, block):
         pass
 
-    def post(self):
-        if self.state.block is not None:
+    def post(self, block):
+        if block is not None:
             for tag in self.apply_tags:
-                self.state.block.tags.add(tag)
+                block.tags.add(tag)
 
 class SupportHandlerWhen(types.SupportHandler):
     def parse(self):
@@ -401,15 +406,15 @@ class SupportHandlerWhen(types.SupportHandler):
             self.when = [self.when]
         validate(all(isinstance(x, str) for x in self.when), "Step 'when' must be a string or list of strings")
 
-    def pre(self):
+    def pre(self, block):
         if len(self.when) > 0:
             environment = jinja2.Environment()
             for condition in self.when:
                 template = environment.from_string("{{" + condition + "}}")
                 if not parse_bool(template.render(self.state.vars)):
-                    self.state.stop_processing = True
+                    return []
 
-    def post(self):
+    def post(self, block):
         pass
 
 class SupportHandlerMatchTags(types.SupportHandler):
@@ -432,23 +437,23 @@ class SupportHandlerMatchTags(types.SupportHandler):
         validate(all(isinstance(x, str) for x in self.exclude_tags), "Step 'exclude_tags' must be a list of strings")
         self.exclude_tags = set(self.exclude_tags)
 
-    def pre(self):
+    def pre(self, block):
         if len(self.match_any_tags) > 0:
             # If there are any 'match_any_tags', then at least one of them has to match with the document
-            if len(self.match_any_tags.intersection(self.state.block.tags)) == 0:
-                self.state.stop_processing = True
+            if len(self.match_any_tags.intersection(block.tags)) == 0:
+                return []
 
         if len(self.match_all_tags) > 0:
             # If there are any 'match_all_tags', then all of those tags must match the document
             for tag in self.match_all_tags:
-                if tag not in self.state.block.tags:
-                    self.state.stop_processing = True
+                if tag not in block.tags:
+                    return []
 
         if len(self.exclude_tags) > 0:
             # If there are any exclude tags and any are present in the block, it isn't a match
             for tag in self.exclude_tags:
-                if tag in self.state.block.tags:
-                    self.state.stop_processing = True
+                if tag in block.tags:
+                    return []
 
-    def post(self):
+    def post(self, block):
         pass
