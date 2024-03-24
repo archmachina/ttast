@@ -65,19 +65,3 @@ def pop_property(spec, key, *, template_map=None, default=None, required=False):
                 val[val_key] = template_if_string(val[val_key], template_map)
 
     return val
-
-def merge_meta_tags(vars, *, tags=None, meta=None):
-    validate(isinstance(vars, dict), "Vars provided to merge_meta_tags is not a dictionary")
-    validate(isinstance(tags, (set, list)) or tags is None, "Tags provided to merge_meta_tags is not a list, set or absent")
-    validate(isinstance(meta, dict) or tags is None, "Tags provided to merge_meta_tags is not a list or absent")
-
-    new_vars = vars.copy()
-
-    new_tags = ",".join(set(tags))
-    new_vars["ttast_tags"] = new_tags
-
-    # Create vars for all of the metadata
-    for meta_key in meta:
-        new_vars[f"ttast_meta_{meta_key}"] = meta[meta_key]
-
-    return new_vars
