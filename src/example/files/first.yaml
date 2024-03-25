@@ -8,3 +8,5 @@ original_filename: {{ meta.import_filename | default('Unknown') }}
 name: Second document in first.yaml
 
 value: test
+
+hash_value: {{ "tester1234" | hash("sha1") }}

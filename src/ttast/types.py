@@ -34,6 +34,7 @@ class Pipeline:
             "env": os.environ.copy()
         }
         self._blocks = []
+        self._filters = {}
 
         self.step_limit = 100
 
@@ -79,6 +80,24 @@ class Pipeline:
             if handler not in self._support_handlers:
                 self._support_handlers.append(handler)
 
+    def add_filters(self, filters):
+        validate(isinstance(filters, dict), "Invalid filters passed to add_filters")
+        validate(all((callable(x) or x is None) for x in filters.values()), "Invalid filters passed to add_filters")
+
+        for key in filters:
+            self._filters[key] = filters[key]
+
+    def build_template_environment(self):
+        environment = Jinja2.Environment()
+
+        for key in self._filters:
+            value = self._filters[key]
+
+            if value is not None:
+                environment.filters[key] = value
+
+        return environment
+
     def run(self):
         # This is a while loop with index to allow the pipeline to be appended to during processing
         index = 0
@@ -89,7 +108,10 @@ class Pipeline:
             index = index + 1
 
             # Extract type
-            step_type = pop_property(step_def, "type", template_map=None)
+            if "type" not in step_def:
+                raise PipelineRunException("Missing type property on pipeline step")
+
+            step_type = step_def.pop("type")
             validate(isinstance(step_type, str) and step_type != "", "Step 'type' is required and must be a non empty string")
 
             # Retrieve the handler for the step type
@@ -122,7 +144,11 @@ class Pipeline:
             step_vars["meta"] = copy.deepcopy(block.meta)
             step_vars["tags"] = copy.deepcopy(block.tags)
 
-        state = PipelineStepState(step_def, self, step_vars)
+        # Create a Templater
+        templater = Templater(self._filters, step_vars)
+
+        # Create the pipeline step state
+        state = PipelineStepState(step_def, self, step_vars, templater)
 
         #
         # Parsing
@@ -214,14 +240,16 @@ class Pipeline:
             working_list = []
 
 class PipelineStepState:
-    def __init__(self, step_def, pipeline, step_vars):
+    def __init__(self, step_def, pipeline, step_vars, templater):
         validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepState")
         validate(isinstance(pipeline, Pipeline) or pipeline is None, "Invalid pipeline passed to PipelineStepState")
         validate(isinstance(step_vars, dict), "Invalid step vars passed to PipelineStepState")
+        validate(isinstance(templater, Templater), "Invalid templater passed to PipelineStepState")
 
         self.step_def = step_def.copy()
         self.pipeline = pipeline
         self.vars = step_vars
+        self.templater = templater
 
 class SupportHandler:
     def init(self, state):
@@ -252,3 +280,72 @@ class Handler:
 
     def run(self, block):
         raise PipelineRunException("run undefined in Handler")
+
+class Templater:
+    def __init__(self, filters, template_vars=None):
+        validate(isinstance(filters, dict), "Invalid filters passed to Templater ctor")
+        validate(all((callable(x) or x is None) for x in filters.values()), "Invalid filters passed to Templater ctor")
+
+        # Create a new Jinja2 environment
+        self._environment = jinja2.Environment()
+
+        # Update the Jinja2 environment with any custom filters
+        for key in filters:
+            value = filters[key]
+
+            if value is not None:
+                self._environment.filters[key] = value
+
+        # Define the template vars
+        if template_vars is None:
+            self.vars = {}
+        else:
+            self.vars = copy.deepcopy(template_vars)
+
+    def template_if_string(self, val, var_override=None):
+        if var_override is not None and not isinstance(var_override, dict):
+            raise PipelineRunException("Invalid var override passed to template_if_string")
+
+        if val is not None and isinstance(val, str):
+            try:
+                template = self._environment.from_string(val)
+                return template.render(self.vars)
+            except KeyError as e:
+                raise PipelineRunException(f"Missing key in template substitution: {e}") from e
+
+        return val
+
+    def extract_property(self, spec, key, /, default=None, required=False, var_override=None):
+        if not isinstance(spec, dict):
+            raise PipelineRunException("Invalid spec passed to extract_property. Must be dict")
+
+        if var_override is not None and not isinstance(var_override, dict):
+            raise PipelineRunException("Invalid var_override passed to extract_property")
+
+        # Determine which vars will be used for templating
+        template_vars = self.vars
+        if var_override is not None:
+            template_vars = var_override
+
+        if key not in spec:
+            # Raise exception is the key isn't present, but required
+            if required:
+                raise KeyError(f'Missing key "{key}" in spec or value is null')
+
+            # If the key is not present, return the default
+            return default
+
+        # Retrieve value
+        val = spec.pop(key)
+
+        # Template the value, depending on the type
+        if val is not None:
+            if isinstance(val, str):
+                val = self.template_if_string(val, var_override=template_vars)
+            elif isinstance(val, list):
+                val = [self.template_if_string(x, var_override=template_vars) for x in val]
+            elif isinstance(val, dict):
+                for val_key in val:
+                    val[val_key] = self.template_if_string(val[val_key], var_override=template_vars)
+
+        return val

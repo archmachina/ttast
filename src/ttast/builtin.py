@@ -8,6 +8,7 @@ import inspect
 import copy
 import hashlib
 import textwrap
+import base64
 
 from .util import *
 from . import types
@@ -17,16 +18,16 @@ class HandlerConfig(types.Handler):
     """
     def parse(self):
         # Read the content from the file and use _process_config_content to do the work
-        self.config_file = pop_property(self.state.step_def, "file", template_map=self.state.vars)
+        self.config_file = self.state.templater.extract_property(self.state.step_def, "file")
         validate(isinstance(self.config_file, str) or self.config_file is None, "Step 'config_file' must be a string or absent")
         validate(not isinstance(self.config_file, str) or self.config_file != "", "Step 'config_file' cannot be empty")
 
         # Extract the content var, which can be either a dict or yaml string
-        self.config_content = pop_property(self.state.step_def, "content", template_map=self.state.vars)
+        self.config_content = self.state.templater.extract_property(self.state.step_def, "content")
         validate(isinstance(self.config_content, (str, dict)) or self.config_content is None, "Step 'config_content' must be a string, dict or absent")
 
         # Extract stdin bool, indicating whether to read config from stdin
-        self.stdin = pop_property(self.state.step_def, "stdin", template_map=self.state.vars, default=False)
+        self.stdin = self.state.templater.extract_property(self.state.step_def, "stdin", default=False)
         validate(isinstance(self.stdin, (bool, str)), "Step 'stdin' must be a bool, bool like string or absent")
         self.stdin = parse_bool(self.stdin)
 
@@ -67,14 +68,14 @@ class HandlerConfig(types.Handler):
         validate(isinstance(content, dict), "Parsed configuration is not a dictionary")
 
         # Extract vars from the config
-        config_vars = pop_property(content, "vars", template_map=self.state.vars, default={})
+        config_vars = self.state.templater.extract_property(content, "vars", default={})
         validate(isinstance(config_vars, dict), "Config 'vars' is not a dictionary")
 
         for config_var_name in config_vars:
             self.state.pipeline.set_var(config_var_name, config_vars[config_var_name])
 
         # Extract pipeline steps from the config
-        config_pipeline = pop_property(content, "pipeline", template_map=None, default=[])
+        config_pipeline = self.state.templater.extract_property(content, "pipeline", default=[])
         validate(isinstance(config_pipeline, list), "Config 'pipeline' is not a list")
 
         for step in config_pipeline:
@@ -89,11 +90,11 @@ class HandlerImport(types.Handler):
     """
     """
     def parse(self):
-        self.import_files = pop_property(self.state.step_def, "files", template_map=self.state.vars)
+        self.import_files = self.state.templater.extract_property(self.state.step_def, "files")
         validate(isinstance(self.import_files, list), "Step 'files' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.import_files), "Step 'files' must be a list of strings")
 
-        self.recursive = pop_property(self.state.step_def, "recursive", template_map=self.state.vars)
+        self.recursive = self.state.templater.extract_property(self.state.step_def, "recursive")
         validate(isinstance(self.recursive, (bool, str)), "Step 'recursive' must be a bool or bool like string")
         self.recursive = parse_bool(self.recursive)
 
@@ -128,7 +129,7 @@ class HandlerMeta(types.Handler):
     """
     """
     def parse(self):
-        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.vars)
+        self.vars = self.state.templater.extract_property(self.state.step_def, "vars")
         validate(isinstance(self.vars, dict), "Step 'vars' must be a dictionary of strings")
         validate(all(isinstance(x, str) for x in self.vars), "Step 'vars' must be a dictionary of strings")
 
@@ -143,14 +144,14 @@ class HandlerReplace(types.Handler):
     """
     """
     def parse(self):
-        self.replace = pop_property(self.state.step_def, "replace", template_map=self.state.vars, default={})
+        self.replace = self.state.templater.extract_property(self.state.step_def, "replace", default={})
         validate(isinstance(self.replace, list), "Step 'replace' must be a list")
         validate(all(isinstance(x, dict) for x in self.replace), "Step 'replace' items must be dictionaries")
         for item in self.replace:
             validate('key' in item and isinstance(item['key'], str), "Step 'replace' items must contain a string 'key' property")
             validate('value' in item and isinstance(item['value'], str), "Step 'replace' items must contain a string 'value' property")
 
-        self.regex = pop_property(self.state.step_def, "regex", template_map=self.state.vars, default=False)
+        self.regex = self.state.templater.extract_property(self.state.step_def, "regex", default=False)
         validate(isinstance(self.regex, (bool, str)), "Step 'regex' must be a bool, bool like string or absent")
         self.regex = parse_bool(self.regex)
 
@@ -165,13 +166,13 @@ class HandlerReplace(types.Handler):
             replace_key = replace_item['key']
             replace_value = replace_item['value']
 
-            replace_regex = pop_property(replace_item, "regex", template_map=self.state.vars, default=False)
+            replace_regex = self.state.templater.extract_property(replace_item, "regex", default=False)
             validate(isinstance(replace_regex, (bool, str)), "Replace item 'regex' must be a bool, bool like string or absent")
             replace_regex = parse_bool(replace_regex)
 
             # replace_value isn't templated by pop_property as it is a list of dictionaries, so it
             # needs to be manually done here
-            replace_value = template_if_string(replace_value, self.state.vars)
+            replace_value = self.state.templater.template_if_string(replace_value, self.state.vars)
 
             logger.debug(f"replace: replacing regex({self.regex or replace_regex}): {replace_key} -> {replace_value}")
 
@@ -184,7 +185,7 @@ class HandlerSplitYaml(types.Handler):
     """
     """
     def parse(self):
-        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.vars, default=False)
+        self.strip = self.state.templater.extract_property(self.state.step_def, "strip", default=False)
         validate(isinstance(self.strip, (bool, str)), "Step 'strip' must be a bool or str value")
         self.strip = parse_bool(self.strip)
 
@@ -235,10 +236,10 @@ class HandlerStdin(types.Handler):
     """
     """
     def parse(self):
-        self.split = pop_property(self.state.step_def, "split", template_map=self.state.vars)
+        self.split = self.state.templater.extract_property(self.state.step_def, "split")
         validate(isinstance(self.split, str) or self.split is None, "Step 'split' must be a string")
 
-        self.strip = pop_property(self.state.step_def, "strip", template_map=self.state.vars, default=False)
+        self.strip = self.state.templater.extract_property(self.state.step_def, "strip", default=False)
         validate(isinstance(self.strip, (bool, str)), "Step 'strip' must be a bool or str value")
         self.strip = parse_bool(self.strip)
 
@@ -271,10 +272,10 @@ class HandlerStdout(types.Handler):
     """
     """
     def parse(self):
-        self.prefix = pop_property(self.state.step_def, "prefix", template_map=self.state.vars)
+        self.prefix = self.state.templater.extract_property(self.state.step_def, "prefix")
         validate(isinstance(self.prefix, str) or self.prefix is None, "Step 'prefix' must be a string")
 
-        self.suffix = pop_property(self.state.step_def, "suffix", template_map=self.state.vars)
+        self.suffix = self.state.templater.extract_property(self.state.step_def, "suffix")
         validate(isinstance(self.suffix, str) or self.suffix is None, "Step 'suffix' must be a string")
 
     def is_per_block():
@@ -293,7 +294,7 @@ class HandlerTemplate(types.Handler):
     """
     """
     def parse(self):
-        self.vars = pop_property(self.state.step_def, "vars", template_map=self.state.vars)
+        self.vars = self.state.templater.extract_property(self.state.step_def, "vars")
         validate(isinstance(self.vars, dict) or self.vars is None, "Step 'vars' must be a dictionary or absent")
 
     def is_per_block():
@@ -306,9 +307,9 @@ class HandlerTemplate(types.Handler):
             for key in self.vars:
                 template_vars[key] = self.vars[key]
 
-        environment = jinja2.Environment()
-        template = environment.from_string(block.text)
-        block.text = template.render(template_vars)
+        block.text = self.state.templater.template_if_string(block.text)
+        if not isinstance(block.text, str):
+            raise PipelineRunException("Could not template source text")
 
 def _block_sum(block):
     validate(isinstance(block, types.TextBlock), "Invalid text block passed to _block_sum")
@@ -367,7 +368,7 @@ class SupportHandlerSum(types.SupportHandler):
 class SupportHandlerTags(types.SupportHandler):
     def parse(self):
         # Apply tags
-        self.apply_tags = pop_property(self.state.step_def, "apply_tags", template_map=self.state.vars, default=[])
+        self.apply_tags = self.state.templater.extract_property(self.state.step_def, "apply_tags", default=[])
         validate(isinstance(self.apply_tags, list), "Step 'apply_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.apply_tags), "Step 'apply_tags' must be a list of strings")
 
@@ -382,7 +383,7 @@ class SupportHandlerTags(types.SupportHandler):
 class SupportHandlerWhen(types.SupportHandler):
     def parse(self):
         # When condition
-        self.when = pop_property(self.state.step_def, "when", template_map=self.state.vars, default=[])
+        self.when = self.state.templater.extract_property(self.state.step_def, "when", default=[])
         validate(isinstance(self.when, (list, str)), "Step 'when' must be a string or list of strings")
         if isinstance(self.when, str):
             self.when = [self.when]
@@ -390,10 +391,9 @@ class SupportHandlerWhen(types.SupportHandler):
 
     def pre(self, block):
         if len(self.when) > 0:
-            environment = jinja2.Environment()
             for condition in self.when:
-                template = environment.from_string("{{" + condition + "}}")
-                if not parse_bool(template.render(self.state.vars)):
+                result = self.state.templater.template_if_string("{{" + condition + "}}")
+                if not parse_bool(result):
                     return []
 
     def post(self, block):
@@ -402,19 +402,19 @@ class SupportHandlerWhen(types.SupportHandler):
 class SupportHandlerMatchTags(types.SupportHandler):
     def parse(self):
         # Extract match any tags
-        self.match_any_tags = pop_property(self.state.step_def, "match_any_tags", template_map=self.state.vars, default=[])
+        self.match_any_tags = self.state.templater.extract_property(self.state.step_def, "match_any_tags", default=[])
         validate(isinstance(self.match_any_tags, list), "Step 'match_any_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.match_any_tags), "Step 'match_any_tags' must be a list of strings")
         self.match_any_tags = set(self.match_any_tags)
 
         # Extract match all tags
-        match_all_tags = pop_property(self.state.step_def, "match_all_tags", template_map=self.state.vars, default=[])
+        match_all_tags = self.state.templater.extract_property(self.state.step_def, "match_all_tags", default=[])
         validate(isinstance(match_all_tags, list), "Step 'match_all_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in match_all_tags), "Step 'match_all_tags' must be a list of strings")
         self.match_all_tags = set(match_all_tags)
 
         # Extract exclude tags
-        self.exclude_tags = pop_property(self.state.step_def, "exclude_tags", template_map=self.state.vars, default=[])
+        self.exclude_tags = self.state.templater.extract_property(self.state.step_def, "exclude_tags", default=[])
         validate(isinstance(self.exclude_tags, list), "Step 'exclude_tags' must be a list of strings")
         validate(all(isinstance(x, str) for x in self.exclude_tags), "Step 'exclude_tags' must be a list of strings")
         self.exclude_tags = set(self.exclude_tags)
@@ -439,3 +439,19 @@ class SupportHandlerMatchTags(types.SupportHandler):
 
     def post(self, block):
         pass
+
+def FilterHash(value, name="sha1"):
+
+    # Get a reference to the object to use for hashing
+    classref = getattr(hashlib, name)
+    instance = classref()
+
+    instance.update(str(value).encode("utf-8"))
+
+    return instance.hexdigest()
+
+def FilterBase64Encode(value, encoding="utf-8"):
+    return base64.b64encode(str(value).encode(encoding))
+
+def FilterBase64Decode(value, encoding="utf-8"):
+    return base64.b64decode(value).decode(encoding)

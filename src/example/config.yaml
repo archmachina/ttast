@@ -3,6 +3,7 @@ vars:
   other_replacement: "BOOT"
   env_var: "{{ env.TEST_VAR | default('TEST_VAR unset') }}"
   import_tag: "tester12"
+  encode_value: "dGVzdA=="
 
 pipeline:
   # - type: config

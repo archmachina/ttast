@@ -10,3 +10,7 @@ filename: {{ ttast_meta_filename }}
 tags: {{ tags }}
 
 original_filename: {{ meta.import_filename | default('Unknown') }}
+
+hash_value: {{ "tester1234" | hash("md5") }}
+
+decode_value: {{ encode_value | b64decode }}
