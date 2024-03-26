@@ -4,6 +4,9 @@ vars:
   env_var: "{{ env.TEST_VAR | default('TEST_VAR unset') }}"
   import_tag: "tester12"
   encode_value: "dGVzdA=="
+  test1:
+    test2:
+      test3: "nested_value"
 
 pipeline:
   # - type: config
@@ -56,6 +59,9 @@ pipeline:
       - yaml
     vars:
       document_type: yaml
+      nested1:
+        nested2:
+          nested3: "nested-{{ import_tag }}"
 
   - type: sum
 

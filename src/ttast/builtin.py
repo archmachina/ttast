@@ -75,7 +75,8 @@ class HandlerConfig(types.Handler):
             self.state.pipeline.set_var(config_var_name, config_vars[config_var_name])
 
         # Extract pipeline steps from the config
-        config_pipeline = self.state.templater.extract_property(content, "pipeline", default=[])
+        # Don't template the pipeline steps - These will be templated when they are executed
+        config_pipeline = self.state.templater.extract_property(content, "pipeline", default=[], recursive_template=False)
         validate(isinstance(config_pipeline, list), "Config 'pipeline' is not a list")
 
         for step in config_pipeline:
@@ -169,10 +170,6 @@ class HandlerReplace(types.Handler):
             replace_regex = self.state.templater.extract_property(replace_item, "regex", default=False)
             validate(isinstance(replace_regex, (bool, str)), "Replace item 'regex' must be a bool, bool like string or absent")
             replace_regex = parse_bool(replace_regex)
-
-            # replace_value isn't templated by pop_property as it is a list of dictionaries, so it
-            # needs to be manually done here
-            replace_value = self.state.templater.template_if_string(replace_value, self.state.vars)
 
             logger.debug(f"replace: replacing regex({self.regex or replace_regex}): {replace_key} -> {replace_value}")
 

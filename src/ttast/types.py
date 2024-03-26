@@ -9,6 +9,7 @@ import copy
 import logging
 
 from .util import *
+from .exception import *
 
 logger = logging.getLogger(__name__)
 
@@ -306,26 +307,23 @@ class Templater:
         if var_override is not None and not isinstance(var_override, dict):
             raise PipelineRunException("Invalid var override passed to template_if_string")
 
-        if val is not None and isinstance(val, str):
-            try:
-                template = self._environment.from_string(val)
-                return template.render(self.vars)
-            except KeyError as e:
-                raise PipelineRunException(f"Missing key in template substitution: {e}") from e
+        # Determine which vars will be used for templating
+        template_vars = self.vars
+        if var_override is not None:
+            template_vars = var_override
+
+        if isinstance(val, str):
+            template = self._environment.from_string(val)
+            return template.render(self.vars)
 
         return val
 
-    def extract_property(self, spec, key, /, default=None, required=False, var_override=None):
+    def extract_property(self, spec, key, /, default=None, required=False, var_override=None, recursive_template=True):
         if not isinstance(spec, dict):
             raise PipelineRunException("Invalid spec passed to extract_property. Must be dict")
 
         if var_override is not None and not isinstance(var_override, dict):
             raise PipelineRunException("Invalid var_override passed to extract_property")
-
-        # Determine which vars will be used for templating
-        template_vars = self.vars
-        if var_override is not None:
-            template_vars = var_override
 
         if key not in spec:
             # Raise exception is the key isn't present, but required
@@ -338,14 +336,51 @@ class Templater:
         # Retrieve value
         val = spec.pop(key)
 
-        # Template the value, depending on the type
-        if val is not None:
-            if isinstance(val, str):
-                val = self.template_if_string(val, var_override=template_vars)
-            elif isinstance(val, list):
-                val = [self.template_if_string(x, var_override=template_vars) for x in val]
-            elif isinstance(val, dict):
-                for val_key in val:
-                    val[val_key] = self.template_if_string(val[val_key], var_override=template_vars)
+        # Recursive template of the object and sub elements, if it is a dict or list
+        if recursive_template:
+            val = self.recursive_template(val, var_override=var_override)
 
         return val
+
+    def recursive_template(self, item, var_override=None):
+
+        # Only perform recursive templating if the input object
+        # is a dictionary or list
+        if not isinstance(item, (dict, list)):
+            return self.template_if_string(item, var_override=var_override)
+
+        visited = set()
+        item_list = [item]
+
+        while len(item_list) > 0:
+            current = item_list.pop()
+
+            # Check if we've seen this object before
+            if id(current) in visited:
+                continue
+
+            # Save this to the visited list, so we don't revisit again, if there is a loop
+            # in the origin object
+            visited.add(id(current))
+
+            if isinstance(current, dict):
+                for key in current:
+                    if isinstance(current[key], (dict, list)):
+                        item_list.append(current[key])
+                    else:
+                        current[key] = self.template_if_string(current[key], var_override=var_override)
+            elif isinstance(current, list):
+                index = 0
+                while index < len(current):
+                    if isinstance(current[index], (dict, list)):
+                        item_list.append(current[index])
+                    else:
+                        current[index] = self.template_if_string(current[index], var_override=var_override)
+
+                    index = index + 1
+            else:
+                # Anything non dictionary or list should never have ended up in this list, so this
+                # is really an internal error
+                raise PipelineRunException(f"Invalid type for templating in recursive_template: {type(current)}")
+
+        return item
