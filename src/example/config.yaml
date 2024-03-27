@@ -7,6 +7,9 @@ vars:
   test1:
     test2:
       test3: "nested_value"
+  first: "{{ second }}"
+  second: "{{ third }}"
+  third: 3
 
 pipeline:
   # - type: config
@@ -58,6 +61,7 @@ pipeline:
     match_any_tags:
       - yaml
     vars:
+      recursive: "{{ first }}"
       document_type: yaml
       nested1:
         nested2:

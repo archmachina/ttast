@@ -313,12 +313,25 @@ class Templater:
             template_vars = var_override
 
         if isinstance(val, str):
-            template = self._environment.from_string(val)
-            return template.render(self.vars)
+            # Perform at most 'count' passes of the string
+            count = 30
+            current = val
+
+            while count > 0:
+                count = count - 1
+
+                template = self._environment.from_string(current)
+                output = template.render(self.vars)
+                if output == current:
+                    return output
+
+                current = output
+
+            raise PipelineRunException(f"Reached recursion limit for string template '{val}'")
 
         return val
 
-    def extract_property(self, spec, key, /, default=None, required=False, var_override=None, recursive_template=True):
+    def extract_property(self, spec, key, /, types=None, default=None, required=False, var_override=None, template=True):
         if not isinstance(spec, dict):
             raise PipelineRunException("Invalid spec passed to extract_property. Must be dict")
 
@@ -337,8 +350,56 @@ class Templater:
         val = spec.pop(key)
 
         # Recursive template of the object and sub elements, if it is a dict or list
-        if recursive_template:
+        if template:
             val = self.recursive_template(val, var_override=var_override)
+
+        val = self.coerce_property(types, val)
+
+        return val
+
+    def coerce_property(self, types, val):
+        if types is None:
+            # Nothing to do here
+            return val
+
+        if isinstance(types, type):
+            types = (types,)
+
+        if not isinstance(types, tuple) and all(isinstance(x, type) for x in types):
+            raise PipelineRunException("Invalid types passed to coerce_property")
+
+        # Don't bother with conversion if val is None. Also, conversion to str will just give 'None'
+        # which is probably not what is wanted
+        if val is None:
+            return None
+
+        parsed = None
+
+        for type_item in types:
+            # Return val if it is already the correct type
+            if isinstance(val, type_item):
+                return val
+
+            if type_item == bool:
+                try:
+                    result = parse_bool(val)
+                    return result
+                except:
+                    pass
+            elif type_item == str:
+                return str(val)
+
+            # None of the above have worked, try parsing as yaml to see if it
+            # becomes the correct type
+            if isinstance(val, str):
+                try:
+                    if parsed is None:
+                        parsed = yaml.safe_load(val)
+
+                    if isinstance(parsed, type_item):
+                        return parsed
+                except yaml.YAMLError as e:
+                    pass
 
         return val
 
