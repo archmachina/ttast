@@ -138,6 +138,9 @@ class Pipeline:
         validate(inspect.isclass(handler) and issubclass(handler, Handler), "Invalid handler passed to _process_step_instance")
         validate(block is None or isinstance(block, TextBlock), "Invalid text block passed to _process_step_instance")
 
+        # Create a copy of step_def to work with as we will modify the content
+        step_def = copy.deepcopy(step_def)
+
         # Create new vars for the instance, based on the pipeline vars, plus including
         # any block vars, if present
         step_vars = self.copy_vars()
@@ -148,8 +151,15 @@ class Pipeline:
         # Create a Templater
         templater = Templater(self._filters, step_vars)
 
+        # Determine the working directory for this step
+        workingdir = templater.extract_property(step_def, "workingdir")
+        validate(isinstance(workingdir, str) or workingdir is None, "Invalid workingdir provided on step definition")
+        if workingdir is None or workingdir == "":
+            workingdir = os.getcwd()
+        step_vars["workingdir"] = workingdir
+
         # Create the pipeline step state
-        state = PipelineStepState(step_def, self, step_vars, templater)
+        state = PipelineStepState(step_def, self, step_vars, templater, workingdir)
 
         #
         # Parsing
@@ -187,8 +197,9 @@ class Pipeline:
         block_list = [block]
         working_list = []
 
+        logger.debug(f" workingdir: {state.workingdir}")
         if block is not None:
-            logger.debug(f"Operating on block: {hex(id(block))}")
+            logger.debug(f" block: {hex(id(block))}")
             logger.debug(f" meta: {block.meta}")
             logger.debug(f" tags: {block.tags}")
 
@@ -241,16 +252,18 @@ class Pipeline:
             working_list = []
 
 class PipelineStepState:
-    def __init__(self, step_def, pipeline, step_vars, templater):
+    def __init__(self, step_def, pipeline, step_vars, templater, workingdir):
         validate(isinstance(step_def, dict), "Invalid step_def passed to PipelineStepState")
         validate(isinstance(pipeline, Pipeline) or pipeline is None, "Invalid pipeline passed to PipelineStepState")
         validate(isinstance(step_vars, dict), "Invalid step vars passed to PipelineStepState")
         validate(isinstance(templater, Templater), "Invalid templater passed to PipelineStepState")
+        validate(isinstance(workingdir, str), "Invalid working dir passed to PipelineStepState")
 
-        self.step_def = step_def.copy()
+        self.step_def = step_def
         self.pipeline = pipeline
         self.vars = step_vars
         self.templater = templater
+        self.workingdir = workingdir
 
 class SupportHandler:
     def init(self, state):
@@ -283,9 +296,10 @@ class Handler:
         raise PipelineRunException("run undefined in Handler")
 
 class Templater:
-    def __init__(self, filters, template_vars=None):
+    def __init__(self, filters, template_vars):
         validate(isinstance(filters, dict), "Invalid filters passed to Templater ctor")
         validate(all((callable(x) or x is None) for x in filters.values()), "Invalid filters passed to Templater ctor")
+        validate(isinstance(template_vars, dict), "Invalid template vars passed to Templater")
 
         # Create a new Jinja2 environment
         self._environment = jinja2.Environment()
@@ -298,10 +312,9 @@ class Templater:
                 self._environment.filters[key] = value
 
         # Define the template vars
-        if template_vars is None:
-            self.vars = {}
-        else:
-            self.vars = copy.deepcopy(template_vars)
+        # Don't copy the template vars, just reference it. These vars may be changed elsewhere
+        # and shouldn't need to be reimported or altered within the Templater
+        self.vars = template_vars
 
     def template_if_string(self, val, var_override=None):
         if var_override is not None and not isinstance(var_override, dict):

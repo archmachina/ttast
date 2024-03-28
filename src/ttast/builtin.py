@@ -39,21 +39,25 @@ class HandlerConfig(types.Handler):
             with open(self.config_file, "r", encoding='utf-8') as file:
                 content = file.read()
 
-            self._process_config_content(content)
+            # The working dir for the steps is set to the dirname for the config file
+            dirname = os.path.dirname(self.config_file)
+
+            self._process_config_content(content, dirname)
 
         # Call _process_config_content, which can determine whether to process as string or dict
         if self.config_content is not None:
             logger.debug(f"config: including inline config")
-            self._process_config_content(self.config_content)
+            self._process_config_content(self.config_content, self.state.workingdir)
 
         if self.stdin:
             # Read configuration from stdin
             logger.debug(f"config: including stdin config")
             stdin_content = sys.stdin.read()
-            self._process_config_content(stdin_content)
+            self._process_config_content(stdin_content, self.state.workingdir)
 
-    def _process_config_content(self, content):
+    def _process_config_content(self, content, workingdir):
         validate(isinstance(content, (str, dict)), "Included configuration must be a string or dictionary")
+        validate(isinstance(workingdir, str), "Invalid workingdir passed to _process_config_content")
 
         # Don't error on an empty configuration. Just return
         if content == "":
@@ -81,6 +85,10 @@ class HandlerConfig(types.Handler):
 
         for step in config_pipeline:
             validate(isinstance(step, dict), "Pipeline entry is not a dictionary")
+
+            # Only define the working directory if the step hasn't already defined it
+            if 'workingdir' not in step:
+                step["workingdir"] = workingdir
 
             self.state.pipeline.add_step(step)
 

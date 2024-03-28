@@ -10,3 +10,5 @@ name: Second document in first.yaml
 value: test
 
 hash_value: {{ "tester1234" | hash("sha1") }}
+
+workingdir: "{{ workingdir }}"
