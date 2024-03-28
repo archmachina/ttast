@@ -34,6 +34,12 @@ class HandlerConfig(types.Handler):
         return False
 
     def run(self, block):
+
+        # Working dir - If the configuration source is a file, the working directory should be set
+        # to the dirname for the config file. Otherwise, the working dir should be inherited from the calling
+        # step, which is referenced by self.state.workingdir
+        # However, if a step has defined the workingdir, it shouldn't be overridden
+
         if self.config_file is not None:
             logger.debug(f"config: including config from file {self.config_file}")
             with open(self.config_file, "r", encoding='utf-8') as file:
